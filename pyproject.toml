@@ -1,0 +1,30 @@
+[project]
+name = "talk-ai"
+version = "0.1.0"
+requires-python = ">=3.11"
+# base は軽量依存のみ。重い ML / Discord 系は extra へ分離(段階導入)。
+dependencies = [
+    "aiohttp>=3.9",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+voice = [
+    "discord.py[voice]>=2.4",
+    "discord-ext-voice-recv>=0.5.2a179",
+]
+ml = [
+    "torch>=1.12.0",
+    "torchaudio>=0.12.0",
+    "faster-whisper>=1.2.1",
+    "silero-vad>=6.2.1",
+]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "soundfile>=0.12"]
+all = ["talk-ai[voice,ml]"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+    "integration: 外部サービス(Discord/GPU/Ollama/TTSサーバ/ffmpeg)が必要なテスト",
+]
