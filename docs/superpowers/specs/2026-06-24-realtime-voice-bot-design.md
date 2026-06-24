@@ -266,11 +266,11 @@ talk-ai/
 
 ## 9. 段階導入(マイルストーン)
 
-- **フェーズ1**: リアルタイム音声ループ(B)+ barge-in。VC で遅延なく往復できる土台
-- **フェーズ1.5**: ターンテイキング・相槌レイヤー(E)。チューニング前提で分離
-- **フェーズ2**: ディスパッチ基盤(C)+ ResearchHandler(参照実装)
-- **フェーズ3**: CodingHandler(Claude Code CLI + Hooks 連携)
-- **フェーズ4**: AppOpHandler(Mac / MCP / Discord)
+- **フェーズ1**: リアルタイム音声ループ(§4)+ barge-in。VC で遅延なく往復できる土台
+- **フェーズ1.5**: ターンテイキング・相槌レイヤー(§5)。チューニング前提で分離
+- **フェーズ2**: ディスパッチ基盤(§6)+ ResearchHandler(§7.1, 参照実装)
+- **フェーズ3**: CodingHandler(§7.2, Claude Code CLI + Hooks + 自動リカバリ)
+- **フェーズ4**: AppOpHandler(§7.3, Mac / Apple メモ / MCP / Discord / Obsidian)
 
 各フェーズで体感を確認してから次へ。設計の主眼はフェーズ1、フェーズ2以降はインターフェースと方針を先に固定。
 
