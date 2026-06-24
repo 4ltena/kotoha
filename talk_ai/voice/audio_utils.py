@@ -1,5 +1,7 @@
 import numpy as np
 
+from talk_ai.config import SAMPLE_RATE_HZ, DISCORD_SAMPLE_RATE_HZ, DISCORD_CHANNELS
+
 
 def resample_linear(x: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
     """線形補間でリサンプル。float32 を返す。
@@ -24,9 +26,9 @@ def resample_linear(x: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
 
 def pcm_s16le_to_float32_mono_16k(
     pcm: bytes,
-    src_rate: int = 48000,
-    src_channels: int = 2,
-    dst_rate: int = 16000,
+    src_rate: int = DISCORD_SAMPLE_RATE_HZ,
+    src_channels: int = DISCORD_CHANNELS,
+    dst_rate: int = SAMPLE_RATE_HZ,
 ) -> np.ndarray:
     """Discord s16le PCM を 16kHz mono float32([-1,1])へ変換。"""
     if not pcm:
