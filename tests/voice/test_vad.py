@@ -45,6 +45,8 @@ def test_segmenter_calls_reset_fn_on_utterance_finalization():
 # --- integration: 実 silero-vad モデルでテンソル形状/値域/区間検出を検証(点15) ---
 @pytest.mark.integration
 def test_real_silero_prob_shape_and_range():
+    pytest.importorskip("torch")
+    pytest.importorskip("silero_vad")
     from talk_ai.voice.vad import SileroVad
 
     vad = SileroVad()
@@ -55,6 +57,8 @@ def test_real_silero_prob_shape_and_range():
 
 @pytest.mark.integration
 def test_real_silero_segmenter_no_utterance_on_silence():
+    pytest.importorskip("torch")
+    pytest.importorskip("silero_vad")
     from talk_ai.voice.vad import SileroVad
 
     vad = SileroVad()

@@ -2,6 +2,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from talk_ai.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
+
 
 def _frames_for_ms(ms: int, window: int, sample_rate: int) -> int:
     frame_ms = window / sample_rate * 1000.0
@@ -15,7 +17,7 @@ class SileroVad:
     独立ストリーム(別話者・別用途・新発話)を処理する前に reset() を呼ぶ。
     """
 
-    def __init__(self, sample_rate: int = 16000):
+    def __init__(self, sample_rate: int = SAMPLE_RATE_HZ):
         from silero_vad import load_silero_vad
         import torch
 
@@ -44,8 +46,8 @@ class VadSegmenter:
         *,
         threshold: float = 0.5,
         silence_ms: int = 400,
-        sample_rate: int = 16000,
-        window: int = 512,
+        sample_rate: int = SAMPLE_RATE_HZ,
+        window: int = VAD_WINDOW_SAMPLES,
         reset_fn: Optional[Callable[[], None]] = None,
     ):
         self._prob_fn = prob_fn
