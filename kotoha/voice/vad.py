@@ -2,7 +2,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from talk_ai.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
+from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 
 
 def _frames_for_ms(ms: int, window: int, sample_rate: int) -> int:

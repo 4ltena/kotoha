@@ -1,4 +1,4 @@
-# talk-ai 🎙️
+# Kotoha 🎙️ — 言葉
 
 **自分の声で、止まらずに喋れるローカル音声AI。**
 
@@ -108,10 +108,10 @@ ollama pull qwen3.5:4b
 ### 起動（実装完了後）
 
 ```bash
-python -m talk_ai.local_app
+python -m kotoha.local_app
 ```
 
-> 起動口 `talk_ai/local_app.py` は現在実装中（下表参照）。完成すると、起動時に Ollama / GPT-SoVITS の疎通チェックを行い、マイク↔スピーカーの対話ループに入ります。
+> 起動口 `kotoha/local_app.py` は現在実装中（下表参照）。完成すると、起動時に Ollama / GPT-SoVITS の疎通チェックを行い、マイク↔スピーカーの対話ループに入ります。
 
 ### テスト
 
@@ -150,7 +150,7 @@ pytest -m integration
 ## 📁 ディレクトリ
 
 ```
-talk_ai/        実装本体（voice/ llm/ + orchestrator/local_app/health/config）
+kotoha/        実装本体（voice/ llm/ + orchestrator/local_app/health/config）
 tests/          ユニット + integration テスト
 docs/
   specs/        設計書（詳細設計）

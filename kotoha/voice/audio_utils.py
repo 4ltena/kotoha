@@ -1,6 +1,6 @@
 import numpy as np
 
-from talk_ai.config import SAMPLE_RATE_HZ, DISCORD_SAMPLE_RATE_HZ, DISCORD_CHANNELS
+from kotoha.config import SAMPLE_RATE_HZ, DISCORD_SAMPLE_RATE_HZ, DISCORD_CHANNELS
 
 
 def resample_linear(x: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:

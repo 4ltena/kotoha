@@ -1,5 +1,5 @@
-from talk_ai import config
-from talk_ai.config import Config
+from kotoha import config
+from kotoha.config import Config
 
 
 def test_audio_constants():

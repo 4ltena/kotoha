@@ -1,5 +1,5 @@
 import pytest
-from talk_ai.llm.front_client import parse_chat_line, stream_chat
+from kotoha.llm.front_client import parse_chat_line, stream_chat
 
 
 def test_parse_intermediate_chunk():

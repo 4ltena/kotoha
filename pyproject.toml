@@ -1,5 +1,5 @@
 [project]
-name = "talk-ai"
+name = "kotoha"
 version = "0.1.0"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -26,7 +26,7 @@ ml = [
     "silero-vad>=6.2.1",
 ]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "soundfile>=0.12"]
-all = ["talk-ai[voice,ml]"]
+all = ["kotoha[voice,ml]"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -1,4 +1,4 @@
-from talk_ai.llm import persona
+from kotoha.llm import persona
 
 
 def test_build_messages_prepends_system():

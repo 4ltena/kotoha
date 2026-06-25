@@ -1,5 +1,5 @@
 import numpy as np
-from talk_ai.voice.vad import BargeInDetector
+from kotoha.voice.vad import BargeInDetector
 
 
 def _scripted(probs):

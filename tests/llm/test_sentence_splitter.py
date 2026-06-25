@@ -1,4 +1,4 @@
-from talk_ai.llm.sentence_splitter import SentenceSplitter
+from kotoha.llm.sentence_splitter import SentenceSplitter
 
 
 def test_emits_sentence_on_japanese_period():

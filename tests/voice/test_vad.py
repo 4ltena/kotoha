@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from talk_ai.voice.vad import VadSegmenter
+from kotoha.voice.vad import VadSegmenter
 
 
 def _scripted(probs):
@@ -47,7 +47,7 @@ def test_segmenter_calls_reset_fn_on_utterance_finalization():
 def test_real_silero_prob_shape_and_range():
     pytest.importorskip("torch")
     pytest.importorskip("silero_vad")
-    from talk_ai.voice.vad import SileroVad
+    from kotoha.voice.vad import SileroVad
 
     vad = SileroVad()
     p = vad.prob(np.zeros(512, dtype=np.float32))
@@ -59,7 +59,7 @@ def test_real_silero_prob_shape_and_range():
 def test_real_silero_segmenter_no_utterance_on_silence():
     pytest.importorskip("torch")
     pytest.importorskip("silero_vad")
-    from talk_ai.voice.vad import SileroVad
+    from kotoha.voice.vad import SileroVad
 
     vad = SileroVad()
     seg = VadSegmenter(vad.prob, reset_fn=vad.reset, silence_ms=200)

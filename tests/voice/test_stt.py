@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from talk_ai.voice.stt import Transcriber
+from kotoha.voice.stt import Transcriber
 
 
 class _Seg:
@@ -38,7 +38,7 @@ def test_transcribe_empty_segments_returns_empty_string():
 @pytest.mark.integration
 def test_real_whisper_transcribes_silence_to_str():
     pytest.importorskip("faster_whisper")
-    from talk_ai.voice.stt import build_whisper
+    from kotoha.voice.stt import build_whisper
 
     model = build_whisper("tiny", device="cpu", compute_type="int8")
     out = Transcriber(model).transcribe(np.zeros(16000, dtype=np.float32))

@@ -1,5 +1,5 @@
 import numpy as np
-from talk_ai.voice.audio_utils import resample_linear, pcm_s16le_to_float32_mono_16k
+from kotoha.voice.audio_utils import resample_linear, pcm_s16le_to_float32_mono_16k
 
 
 def test_resample_linear_decimates_48k_to_16k():
