@@ -45,6 +45,8 @@ def build_orchestrator(
         text_lang=config.gptsovits_text_lang,
         prompt_lang=config.gptsovits_prompt_lang,
         speed_factor=config.gptsovits_speed_factor,
+        # HTTP 層のタイムアウトも config に合わせる(既定 15s を上書き)。
+        timeout=aiohttp.ClientTimeout(total=config.tts_timeout_s),
     )
     llm_stream = functools.partial(
         stream_chat,

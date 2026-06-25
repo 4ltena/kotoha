@@ -149,6 +149,32 @@ async def test_vad_factory_creates_independent_streams_per_user():
     assert len(created) == 2     # 話者ごとに独立した silero ストリーム
 
 
+async def test_reset_all_vad_safe_when_dict_mutated_during_reset():
+    """_reset_all_vad は、反復中に新しいストリームが挿入されても落ちてはならない。
+    VAD ワーカースレッドが barge-in リセットと同時に新ストリームを生成する状況の決定的再現。
+    """
+    player = _BargePlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("x"),
+        llm_stream=_slow_llm_factory(asyncio.Event()),
+        tts=_fake_tts, player=player, model="m",
+        vad_factory=lambda: _CountingVad([0.0] * 5), persona=persona,
+    )
+    orch._loop = asyncio.get_running_loop()
+    orch._get_segmenter(1)
+    orch._get_segmenter(2)
+    seg1 = orch._segmenters[1]
+    orig = seg1.reset
+
+    def reset_then_insert():
+        # 反復中に dict を成長させる(別スレッドの _route_audio による挿入を模擬)
+        orch._segmenters[99] = _CountingVad([])
+        orig()
+
+    seg1.reset = reset_then_insert
+    orch._reset_all_vad()   # RuntimeError(dict changed size during iteration)を起こさないこと
+
+
 async def test_request_bargein_resets_vad_streams():
     vad = _CountingVad([0.9] * 20)
     player = _BargePlayer()

@@ -54,6 +54,10 @@ def test_build_orchestrator_wires_tts_llm_player_vad(monkeypatch):
     assert tts.keywords["text_lang"] == cfg.gptsovits_text_lang
     assert tts.keywords["prompt_lang"] == cfg.gptsovits_prompt_lang
     assert tts.keywords["speed_factor"] == cfg.gptsovits_speed_factor
+    # config.tts_timeout_s を HTTP 層(aiohttp)へも伝える
+    import aiohttp
+    assert isinstance(tts.keywords["timeout"], aiohttp.ClientTimeout)
+    assert tts.keywords["timeout"].total == cfg.tts_timeout_s
 
     # --- llm_stream は Ollama stream_chat への partial ---
     llm = captured["llm_stream"]

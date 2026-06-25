@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -84,6 +85,9 @@ class Orchestrator:
         self._play_q: Optional[asyncio.Queue] = None
         # VAD 推論をループ外へ逃がす単一ワーカースレッド(点12)
         self._vad_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vad")
+        # VAD オブジェクト/dict はワーカースレッド(_route_audio)とループスレッド
+        # (request_bargein/_reset_all_vad)の双方が触れるため、アクセスを直列化する。
+        self._vad_lock = threading.RLock()
 
     # ---- ターンの保存/差し替え ----
     def _save_partial(self) -> None:
@@ -230,10 +234,12 @@ class Orchestrator:
         return det
 
     def _reset_all_vad(self) -> None:
-        for s in self._segmenters.values():
-            s.reset()
-        for d in self._bargein_detectors.values():
-            d.reset()
+        # スナップショット越しに反復(反復中に dict が成長しても安全)。
+        with self._vad_lock:
+            for s in list(self._segmenters.values()):
+                s.reset()
+            for d in list(self._bargein_detectors.values()):
+                d.reset()
 
     def _spawn_turn(self, user_id: int, utterance: np.ndarray) -> None:
         task = asyncio.ensure_future(self.handle_utterance(user_id, utterance))
@@ -255,13 +261,15 @@ class Orchestrator:
         if self._turn_task and not self._turn_task.done():
             self._turn_task.cancel()
         self.player.stop()
-        # 割り込みユーザーの冒頭(pre-roll)を次のセグメンタへ引き継ぐ(点9)
-        if user_id is not None:
-            det = self._bargein_detectors.get(user_id)
-            if det is not None:
-                self._pending_preroll[user_id] = det.drain()
-        # idle<->再生中のストリーム切替なので全 VAD 状態をリセット(点1/11/16)
-        self._reset_all_vad()
+        # VAD オブジェクト/dict はワーカースレッドと共有するためロックで保護(点1/11/16)。
+        with self._vad_lock:
+            # 割り込みユーザーの冒頭(pre-roll)を次のセグメンタへ引き継ぐ(点9)
+            if user_id is not None:
+                det = self._bargein_detectors.get(user_id)
+                if det is not None:
+                    self._pending_preroll[user_id] = det.drain()
+            # idle<->再生中のストリーム切替なので全 VAD 状態をリセット
+            self._reset_all_vad()
 
     # ---- 音声ルーティング ----
     def feed_audio(self, user_id: int, audio: np.ndarray) -> None:
@@ -273,20 +281,22 @@ class Orchestrator:
 
     def _route_audio(self, user_id: int, audio: np.ndarray) -> None:
         # VAD ワーカースレッド(単一)で実行 -> 確定イベントだけループへ marshalling。
+        # VAD オブジェクト/dict は barge-in(ループ側)と共有するためロックで直列化(点1/11/12)。
         try:
-            if self.player.is_playing():
-                det = self._get_bargein_detector(user_id)
-                if det.push(audio):
-                    self._loop.call_soon_threadsafe(self.request_bargein, user_id)
-            else:
-                seg = self._get_segmenter(user_id)
-                pre = self._pending_preroll.pop(user_id, None)
-                if pre is not None and len(pre):
-                    audio = np.concatenate([pre, audio])   # 割り込み冒頭を欠落させない
-                for utterance in seg.push(audio):
-                    self._last_speaker = user_id
-                    self._loop.call_soon_threadsafe(
-                        self._spawn_turn, user_id, utterance
-                    )
+            with self._vad_lock:
+                if self.player.is_playing():
+                    det = self._get_bargein_detector(user_id)
+                    if det.push(audio):
+                        self._loop.call_soon_threadsafe(self.request_bargein, user_id)
+                else:
+                    seg = self._get_segmenter(user_id)
+                    pre = self._pending_preroll.pop(user_id, None)
+                    if pre is not None and len(pre):
+                        audio = np.concatenate([pre, audio])   # 割り込み冒頭を欠落させない
+                    for utterance in seg.push(audio):
+                        self._last_speaker = user_id
+                        self._loop.call_soon_threadsafe(
+                            self._spawn_turn, user_id, utterance
+                        )
         except Exception:
             logger.exception("VAD routing failed (user=%s)", user_id)
