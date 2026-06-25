@@ -3,7 +3,7 @@
 - 日付: 2026-06-24（改訂: 2026-06-25）
 - ステータス: ドラフト / フェーズ1（ローカルMVP）実装中
 - 改訂サマリ:
-  - **TTS を TTSサーバ → GPT-SoVITS（ファインチューン版・ボイスクローン）へ変更**
+  - **TTS をボイスクローン対応の GPT-SoVITS（ファインチューン版）に決定**
   - **まず Discord 非依存の「ローカルonly 対話 MVP」を先に作る**方針へ転換（I/O 端のみローカルへ差し替え、対話コアは流用）
   - **フロント LLM を Qwen3.5 系へ**（既定 `qwen3.5:4b` / 品質重視は `qwen3.5:9b`、リアルタイムでは思考(thinking)を必ず OFF）
   - フェーズ1の**詳細設計**（スレッドモデル / VAD アルゴリズム / barge-in / パイプライン / 各モジュール契約）を §4 に追記
@@ -77,10 +77,10 @@
 | 受信(Discord, 後) | discord.py + `discord-ext-voice-recv` | 音声をユーザー別にリアルタイム受信(20ms PCM)。複数話者・割り込みに必須 |
 | STT | faster-whisper (large-v3-turbo) + Silero VAD | VAD で発話区切り検出 → 区間のみ文字起こし。低遅延・日本語精度良好 |
 | フロント LLM | Ollama でローカル Qwen3.5（既定 `qwen3.5:4b` / 品質 `qwen3.5:9b`）をストリーミング | RTT なしで TTFT が速い=リアルタイムの肝。文単位で TTS へ流せる。**思考(thinking)は OFF 必須** |
-| TTS | **GPT-SoVITS `api_v2.py` `/tts`（ボイスクローン）** | MIT/商用クリーン、約1分のファインチューンで目標声を再現、`/tts` でストリーミング合成可。代替: 低工数の代替TTS（低工数）/ 別の高品質TTS（日本語抑揚の上限） |
+| TTS | **GPT-SoVITS `api_v2.py` `/tts`（ボイスクローン）** | MIT/商用クリーン、約1分のファインチューンで目標声を再現、`/tts` でストリーミング合成可。代替: 軽量ゼロショット系（低工数）/ 日本語抑揚重視系（品質上限） |
 | リサーチ LLM | クラウド公開モデル API + Web 検索ツール | 裏処理なのでリアルタイムに影響なし |
 
-> **TTS 変更の代償（既知）**: GPT-SoVITS の日本語 g2p はピッチアクセント非対応で、稀に抑揚が不自然になりうる。日本語抑揚を最優先するなら 別の高品質TTS が品質上限の参照。
+> **TTS 採用の代償（既知）**: GPT-SoVITS の日本語 g2p はピッチアクセント非対応で、稀に抑揚が不自然になりうる。日本語抑揚を最優先するなら、抑揚に強い別系統 TTS が品質上限の参照。
 
 > **LLM 選定の根拠（2026年6月時点 / Web 検証済み）**: 本命 `qwen3.5:9b`（Q4_K_M 6.6GB、Nejumi-4 0.7485 で Qwen3-14B 超え、Apache-2.0、ネイティブ function-calling、思考トグル可）。速度フォールバックが `qwen3.5:4b`（Q4_K_M 3.4GB、>100 tok/s）。Swallow 系は「公式 Ollama tag 無し/二重利用規約/tool 弱」または「思考 OFF 不可」で非採用。MoE(30B-A3B 級)は Q4 で 16GB 超過しリアルタイム破綻のため不採用。
 
@@ -305,8 +305,7 @@ LLM出力:  「お、それ気になるね。ちょっと調べてみるね。[[
 
 #### 自動リカバリ・ウォッチドッグ
 長時間の自律コーディング中に CLI が一時エラーで固まらないよう、出力監視ベースの自動復帰を入れる
-(参考: `expect` で `claude` をラップし `API Error: 500` 検知時に「続けてください」を自動送信する手法
-（参考リンクは省略）)。
+(参考: `expect` で `claude` をラップし `API Error: 500` 検知時に「続けてください」を自動送信する手法が知られる)。
 
 - headless 駆動なので `expect` ではなく**ストリーム出力/プロセス監視で同等のロジック**を実装
 - トリガー: `API Error: 500` 等の一時障害パターンを検知 → 自動で継続指示を再送
@@ -375,7 +374,7 @@ talk_ai/
     speaker.py             # ローカル再生(sounddevice・barge-in対応)                   ⏳
     mic.py                 # ローカルマイク入力(sounddevice)                           ⏳
     receiver.py            # discord-ext-voice-recv 受信(Discord版・DEFER)            —
-    tts.py                 # TTSサーバ クライアント(Discord版・DEFER)                  —
+    tts.py                 # 旧HTTP-TTS クライアント(Discord版・DEFER)                —
     playback.py            # Discord 再生(DEFER)                                       —
   llm/
     persona.py             # ペルソナ・system prompt                                   ✅
@@ -405,7 +404,7 @@ talk_ai/
 
 ## 11. 未決事項・将来課題
 - フロント LLM の最終モデル（`qwen3.5:4b` で開始、品質が要るとき `qwen3.5:9b` へ差替え）と spec/config 既定値の整合追従
-- GPT-SoVITS 参照音声（`ref_audio_path` / `prompt_text`）の用意とサーバ運用、日本語抑揚が不足する場合の代替 TTS（低工数の代替TTS / 別の高品質TTS）評価
+- GPT-SoVITS 参照音声（`ref_audio_path` / `prompt_text`）の用意とサーバ運用、日本語抑揚が不足する場合の代替 TTS（軽量版 / 日本語抑揚重視版）の評価
 - リサーチ用検索 API の選定(Tavily / Brave 等)とコスト
 - Claude Code Hooks のイベント→進捗フレーズ詳細マッピング
 - 自動リカバリ・ウォッチドッグの監視対象パターン(500 以外の一時エラー)
