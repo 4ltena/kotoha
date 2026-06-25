@@ -82,3 +82,45 @@ def test_build_orchestrator_wires_tts_llm_player_vad(monkeypatch):
     assert captured["stt_timeout"] == cfg.stt_timeout_s
     assert captured["tts_timeout"] == cfg.tts_timeout_s
     assert captured["play_timeout"] == cfg.play_timeout_s
+
+
+def test_build_orchestrator_passes_events(monkeypatch):
+    captured = {}
+
+    class _FakeOrch:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(local_app, "Orchestrator", _FakeOrch)
+
+    sentinel = object()
+    local_app.build_orchestrator(
+        _cfg(),
+        session=object(),
+        loop=object(),
+        transcriber=object(),
+        player=object(),
+        events=sentinel,
+    )
+    assert captured["events"] is sentinel
+
+
+def test_build_orchestrator_defaults_events_to_null(monkeypatch):
+    from kotoha.events import NullEvents
+
+    captured = {}
+
+    class _FakeOrch:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(local_app, "Orchestrator", _FakeOrch)
+
+    local_app.build_orchestrator(
+        _cfg(),
+        session=object(),
+        loop=object(),
+        transcriber=object(),
+        player=object(),
+    )
+    assert isinstance(captured["events"], NullEvents)

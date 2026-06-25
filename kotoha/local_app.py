@@ -5,6 +5,8 @@ import aiohttp
 
 from kotoha.config import Config
 from kotoha.health import check_local_services
+from kotoha.events import NullEvents
+from kotoha.overlay_bridge import OverlayBridge
 from kotoha.llm.front_client import stream_chat
 from kotoha.orchestrator import Orchestrator, make_on_audio
 from kotoha.voice.mic import MicCapture
@@ -22,6 +24,8 @@ def build_orchestrator(
     transcriber=None,
     player=None,
     vad_factory=SileroVad,
+    events=NullEvents(),
+    on_amplitude=None,
 ):
     """設定と長命セッションから Orchestrator を結線する(単体テスト可能)。
 
@@ -34,7 +38,7 @@ def build_orchestrator(
             compute_type=config.whisper_compute_type,
         )
     if player is None:
-        player = LocalSpeaker(loop=loop)
+        player = LocalSpeaker(loop=loop, on_amplitude=on_amplitude)
 
     tts = functools.partial(
         synthesize,
@@ -71,6 +75,7 @@ def build_orchestrator(
         tts_timeout=config.tts_timeout_s,
         play_timeout=config.play_timeout_s,
         loop=loop,
+        events=events,
     )
 
 
@@ -89,7 +94,28 @@ async def run_local(config: Config) -> None:
         if not all(status.values()):
             raise RuntimeError(f"必要なサービスに接続できません: {status}")
 
-        orch = build_orchestrator(config, session=session, loop=loop)
+        bridge = None
+        events = NullEvents()
+        on_amplitude = None
+        if config.overlay_enabled:
+            bridge = OverlayBridge(
+                host=config.overlay_ws_host, port=config.overlay_ws_port, loop=loop
+            )
+            await bridge.start()
+            events = bridge
+            on_amplitude = bridge.mouth
+            print(
+                f"[overlay] WS サーバ起動: "
+                f"ws://{config.overlay_ws_host}:{config.overlay_ws_port}/ws"
+            )
+
+        orch = build_orchestrator(
+            config,
+            session=session,
+            loop=loop,
+            events=events,
+            on_amplitude=on_amplitude,
+        )
         mic = MicCapture(
             make_on_audio(orch),
             user_id=config.local_user_id,
@@ -101,6 +127,8 @@ async def run_local(config: Config) -> None:
             await asyncio.Event().wait()   # KeyboardInterrupt まで常駐
         finally:
             mic.stop()
+            if bridge is not None:
+                await bridge.stop()
 
 
 def main() -> None:
