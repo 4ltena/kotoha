@@ -9,6 +9,7 @@ state()/mouth() は任意スレッドから呼ばれうるため、loop.call_soo
 import asyncio
 import json
 import logging
+import time
 
 from aiohttp import web
 
@@ -16,18 +17,34 @@ logger = logging.getLogger(__name__)
 
 
 class OverlayBridge:
-    def __init__(self, *, host: str = "127.0.0.1", port: int = 8770, loop=None):
+    def __init__(
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8770,
+        loop=None,
+        min_mouth_interval: float = 1.0 / 60.0,
+        clock=None,
+    ):
         self._host = host
         self._port = port
         self._loop = loop
         self._clients: set = set()
         self._runner = None
+        self._min_mouth_interval = min_mouth_interval
+        self._clock = clock or time.monotonic
+        self._last_mouth = None
 
     # ---- events シンク(任意スレッドから安全) ----
     def state(self, value: str) -> None:
         self._submit({"type": "state", "value": value})
 
     def mouth(self, level: float) -> None:
+        # spec §4.3: 口パクは ~60Hz 上限にスロットル(過剰なループ起床/送信を防ぐ)。
+        now = self._clock()
+        if self._last_mouth is not None and (now - self._last_mouth) < self._min_mouth_interval:
+            return
+        self._last_mouth = now
         self._submit({"type": "mouth", "value": float(level)})
 
     def _submit(self, message: dict) -> None:

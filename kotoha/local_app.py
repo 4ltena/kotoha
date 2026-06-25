@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import logging
 
 import aiohttp
 
@@ -14,6 +15,8 @@ from kotoha.voice.speaker import LocalSpeaker
 from kotoha.voice.stt import build_whisper
 from kotoha.voice.tts_gptsovits import synthesize
 from kotoha.voice.vad import SileroVad
+
+logger = logging.getLogger(__name__)
 
 
 def build_orchestrator(
@@ -101,13 +104,17 @@ async def run_local(config: Config) -> None:
             bridge = OverlayBridge(
                 host=config.overlay_ws_host, port=config.overlay_ws_port, loop=loop
             )
-            await bridge.start()
-            events = bridge
-            on_amplitude = bridge.mouth
-            print(
-                f"[overlay] WS サーバ起動: "
-                f"ws://{config.overlay_ws_host}:{config.overlay_ws_port}/ws"
-            )
+            try:
+                await bridge.start()
+                events = bridge
+                on_amplitude = bridge.mouth
+                print(
+                    f"[overlay] WS サーバ起動: "
+                    f"ws://{config.overlay_ws_host}:{config.overlay_ws_port}/ws"
+                )
+            except Exception:
+                logger.exception("overlay bridge の起動に失敗 -> オーバーレイ無効で続行")
+                bridge = None   # events は NullEvents()、on_amplitude は None のまま
 
         orch = build_orchestrator(
             config,

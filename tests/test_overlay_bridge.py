@@ -39,6 +39,33 @@ def test_state_and_mouth_without_loop_are_safe():
     b = OverlayBridge()           # loop 未設定
     b.state("idle")               # 例外を出さない(no-op)
     b.mouth(0.3)
+
+
+def test_mouth_throttles_rapid_calls():
+    b = OverlayBridge(min_mouth_interval=0.05)
+    submitted = []
+    b._submit = lambda m: submitted.append(m)
+    fake_now = [100.0]
+    b._clock = lambda: fake_now[0]
+
+    b.mouth(0.10)          # first call passes
+    b.mouth(0.20)          # same instant -> throttled (dropped)
+    fake_now[0] = 100.10   # advance beyond interval
+    b.mouth(0.30)          # passes
+
+    assert [m["value"] for m in submitted] == [0.10, 0.30]
+
+
+def test_state_is_not_throttled():
+    b = OverlayBridge(min_mouth_interval=10.0)
+    submitted = []
+    b._submit = lambda m: submitted.append(m)
+    b._clock = lambda: 0.0
+    b.state("thinking")
+    b.state("speaking")
+    assert [m["value"] for m in submitted] == ["thinking", "speaking"]
+
+
 import aiohttp
 import pytest
 
