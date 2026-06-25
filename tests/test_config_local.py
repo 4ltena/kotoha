@@ -49,3 +49,10 @@ def test_config_still_frozen():
     cfg = Config()
     with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.gptsovits_url = "http://evil:9880"  # type: ignore[misc]
+
+
+def test_overlay_defaults():
+    cfg = Config()
+    assert cfg.overlay_enabled is False
+    assert cfg.overlay_ws_host == "127.0.0.1"
+    assert cfg.overlay_ws_port == 8770

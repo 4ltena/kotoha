@@ -39,3 +39,7 @@ class Config:
     input_device: Optional[int | str] = None   # None=既定デバイス
     output_device: Optional[int | str] = None  # None=既定デバイス
     mic_blocksize: int = VAD_WINDOW_SAMPLES     # 512: 16kHz で silero-vad 1窓
+    # --- デスクトップ・オーバーレイ (SP2) ---
+    overlay_enabled: bool = False
+    overlay_ws_host: str = "127.0.0.1"
+    overlay_ws_port: int = 8770
