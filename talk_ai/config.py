@@ -10,7 +10,7 @@ FRAME_MS = 20                   # 1 パケット = 20ms
 @dataclass(frozen=True)
 class Config:
     ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b-instruct"
+    ollama_model: str = "qwen3.5:4b"
     tts_http_url: str = "http://localhost:50021"
     tts_http_speaker: int = 1
     whisper_model: str = "large-v3-turbo"
