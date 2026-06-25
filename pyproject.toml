@@ -25,8 +25,11 @@ ml = [
     "faster-whisper>=1.2.1",
     "silero-vad>=6.2.1",
 ]
+local = [
+    "sounddevice>=0.4.6",
+]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "soundfile>=0.12"]
-all = ["kotoha[voice,ml]"]
+all = ["kotoha[voice,ml,local]"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
