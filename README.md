@@ -94,10 +94,8 @@ GPU は RTX 4080 (16GB) 想定。STT/VAD は CPU フォールバックも可。
 # 1. 仮想環境
 python -m venv .venv && source .venv/bin/activate
 
-# 2. 依存インストール（ML + 開発ツール）
-pip install -e ".[ml,dev]"
-#   ※ ローカル音声 I/O 用の [local] extra（sounddevice）は mic/speaker 実装と
-#      同時に追加予定。完成後は ".[ml,local,dev]" を使う。
+# 2. 依存インストール（ML + ローカル音声 I/O + 開発ツール）
+pip install -e ".[ml,local,dev]"
 
 # 3. Ollama でモデルを用意
 ollama pull qwen3.5:4b
@@ -105,13 +103,18 @@ ollama pull qwen3.5:4b
 # 4. GPT-SoVITS サーバを別途起動（ポート 9880、ファインチューン済みの声）
 ```
 
-### 起動（実装完了後）
+### 起動
 
 ```bash
+# (任意) 起動前に環境を診断（Ollama 稼働 / モデル有無 / GPT-SoVITS 到達性 / 音声デバイス）
+python -m kotoha.diagnostics
+
+# 対話ループを起動
 python -m kotoha.local_app
 ```
 
-> 起動口 `kotoha/local_app.py` は現在実装中（下表参照）。完成すると、起動時に Ollama / GPT-SoVITS の疎通チェックを行い、マイク↔スピーカーの対話ループに入ります。
+> 起動時に Ollama / GPT-SoVITS の疎通チェックを行い、マイク↔スピーカーの対話ループに入ります。
+> ※ TTS の実出力には、GPT-SoVITS の参照音声（声データ）を `Config.gptsovits_ref_audio_path` に設定する必要があります（未設定だと合成できません）。
 
 ### テスト
 
@@ -127,7 +130,7 @@ pytest -m integration
 
 ## ✅ 実装状況
 
-中核となる「部品」は完成済み。残りは**全部品をつなぐ Orchestrator** と**ローカル入出力・起動口**です。
+ローカル MVP のパイプラインは**全モジュール実装済み**。実際に声を鳴らすには、別途用意する **GPT-SoVITS の参照音声（声データ）** の設定と、各ローカルサービスの起動が必要です。
 
 | 区分 | モジュール | 状態 |
 |---|---|---|
@@ -137,13 +140,14 @@ pytest -m integration
 | STT | `voice/stt.py` | ✅ 完成 |
 | LLM | `llm/persona.py` / `llm/front_client.py` | ✅ 完成 |
 | 文分割 | `llm/sentence_splitter.py` | ✅ 完成 |
-| TTS クライアント | `voice/tts_gptsovits.py` | ⏳ 未実装 |
-| ローカル再生 | `voice/speaker.py` | ⏳ 未実装 |
-| ローカルマイク | `voice/mic.py` | ⏳ 未実装 |
-| **Orchestrator** | `orchestrator.py` | ⏳ 未実装（中核） |
-| 起動口 / 疎通 | `local_app.py` / `health.py` | ⏳ 未実装 |
+| TTS クライアント | `voice/tts_gptsovits.py` | ✅ 完成 |
+| ローカル再生 | `voice/speaker.py` | ✅ 完成 |
+| ローカルマイク | `voice/mic.py` | ✅ 完成 |
+| **Orchestrator** | `orchestrator.py` | ✅ 完成（中核） |
+| 起動口 / 疎通 | `local_app.py` / `health.py` | ✅ 完成 |
+| 環境診断 | `diagnostics.py` | ✅ 完成 |
 
-ユニットテストは現在 **28 passed**（`-m "not integration"`）。Discord 対応（受信/再生/bot 配線）は MVP 完動後に着手予定。
+ユニットテストは現在 **69 passed**（`-m "not integration"`）。Discord 対応（受信/再生/bot 配線）は MVP 完動後に着手予定。
 
 ---
 
