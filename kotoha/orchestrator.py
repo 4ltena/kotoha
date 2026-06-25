@@ -203,3 +203,90 @@ class Orchestrator:
             )
         except Exception:
             logger.exception("フォールバック発話にも失敗")
+
+    # ---- VAD ストリーム生成(ユーザー別・用途別に独立した silero を持つ) ----
+    def _get_segmenter(self, user_id: int) -> VadSegmenter:
+        seg = self._segmenters.get(user_id)
+        if seg is None:
+            vad = self.vad_factory()   # 新規ステートフル VAD
+            seg = VadSegmenter(
+                vad.prob, reset_fn=vad.reset,
+                threshold=self.vad_threshold, silence_ms=self.vad_silence_ms,
+                sample_rate=self.sample_rate, window=self.vad_window,
+            )
+            self._segmenters[user_id] = seg
+        return seg
+
+    def _get_bargein_detector(self, user_id: int) -> BargeInDetector:
+        det = self._bargein_detectors.get(user_id)
+        if det is None:
+            vad = self.vad_factory()   # セグメンタとは別の独立ストリーム
+            det = BargeInDetector(
+                vad.prob, reset_fn=vad.reset,
+                threshold=self.vad_threshold, trigger_ms=self.bargein_trigger_ms,
+                sample_rate=self.sample_rate, window=self.vad_window,
+            )
+            self._bargein_detectors[user_id] = det
+        return det
+
+    def _reset_all_vad(self) -> None:
+        for s in self._segmenters.values():
+            s.reset()
+        for d in self._bargein_detectors.values():
+            d.reset()
+
+    def _spawn_turn(self, user_id: int, utterance: np.ndarray) -> None:
+        task = asyncio.ensure_future(self.handle_utterance(user_id, utterance))
+        task.add_done_callback(self._log_task_exception)   # 未捕捉例外を握り潰さない(点4)
+
+    @staticmethod
+    def _log_task_exception(task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("utterance task failed", exc_info=exc)
+
+    # ---- barge-in ----
+    def request_bargein(self, user_id: Optional[int] = None) -> None:
+        # 中断時点までの bot 発話を保存 (§4) -> (c)キューフラッシュ -> (b)LLM中断 -> (a)再生停止
+        self._save_partial()
+        self._flush_play_queue()
+        if self._turn_task and not self._turn_task.done():
+            self._turn_task.cancel()
+        self.player.stop()
+        # 割り込みユーザーの冒頭(pre-roll)を次のセグメンタへ引き継ぐ(点9)
+        if user_id is not None:
+            det = self._bargein_detectors.get(user_id)
+            if det is not None:
+                self._pending_preroll[user_id] = det.drain()
+        # idle<->再生中のストリーム切替なので全 VAD 状態をリセット(点1/11/16)
+        self._reset_all_vad()
+
+    # ---- 音声ルーティング ----
+    def feed_audio(self, user_id: int, audio: np.ndarray) -> None:
+        # 受信スレッドから安全に呼べる。torch VAD 推論を専用ワーカースレッドへ
+        # 逃がし、受信スレッドもイベントループもブロックしない(点12)。
+        self._vad_executor.submit(
+            self._route_audio, user_id, np.asarray(audio, dtype=np.float32)
+        )
+
+    def _route_audio(self, user_id: int, audio: np.ndarray) -> None:
+        # VAD ワーカースレッド(単一)で実行 -> 確定イベントだけループへ marshalling。
+        try:
+            if self.player.is_playing():
+                det = self._get_bargein_detector(user_id)
+                if det.push(audio):
+                    self._loop.call_soon_threadsafe(self.request_bargein, user_id)
+            else:
+                seg = self._get_segmenter(user_id)
+                pre = self._pending_preroll.pop(user_id, None)
+                if pre is not None and len(pre):
+                    audio = np.concatenate([pre, audio])   # 割り込み冒頭を欠落させない
+                for utterance in seg.push(audio):
+                    self._last_speaker = user_id
+                    self._loop.call_soon_threadsafe(
+                        self._spawn_turn, user_id, utterance
+                    )
+        except Exception:
+            logger.exception("VAD routing failed (user=%s)", user_id)
