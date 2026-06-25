@@ -5,7 +5,7 @@
 マイクに話しかけると、ローカルの LLM が考えて、**あなたの声をクローンした声**で返事をします。
 すべてローカル PC で完結（クラウド送信なし）。相手が喋っている途中で割り込んでも、ちゃんと止まって聞き直します（**barge-in**）。
 
-> 将来的には Discord VC 対応＋裏で「調べ物・コーディング・アプリ操作」を非同期実行する構想。まずは**ローカルだけで対話できる MVP** を作っています。詳細設計は [`docs/superpowers/specs/2026-06-24-realtime-voice-bot-design.md`](docs/superpowers/specs/2026-06-24-realtime-voice-bot-design.md) を参照。
+> 将来的には Discord VC 対応＋裏で「調べ物・コーディング・アプリ操作」を非同期実行する構想。まずは**ローカルだけで対話できる MVP** を作っています。詳細設計は [`docs/specs/2026-06-24-realtime-voice-bot-design.md`](docs/specs/2026-06-24-realtime-voice-bot-design.md) を参照。
 
 ---
 
@@ -153,8 +153,9 @@ pytest -m integration
 talk_ai/        実装本体（voice/ llm/ + orchestrator/local_app/health/config）
 tests/          ユニット + integration テスト
 docs/
-  superpowers/specs/   設計書（詳細設計）
-  superpowers/plans/   実装計画（タスク分解 / TDD 手順）
+  specs/        設計書（詳細設計）
+  plans/        実装計画（タスク分解 / TDD 手順）
+  HANDOFF.md    引き継ぎメモ（ローカル専用 / git管理外）
 ```
 
 ---
@@ -163,4 +164,4 @@ docs/
 
 Python 3.11+ / asyncio · sounddevice · Silero VAD · faster-whisper · Ollama(Qwen3.5) · GPT-SoVITS · aiohttp · numpy · pytest
 
-詳しい設計は **[設計書](docs/superpowers/specs/2026-06-24-realtime-voice-bot-design.md)** を参照してください。
+詳しい設計は **[設計書](docs/specs/2026-06-24-realtime-voice-bot-design.md)** を参照してください。
