@@ -125,3 +125,68 @@ async def test_tts_failure_triggers_fallback_speech():
     # 本文 TTS 失敗 -> フォールバック文を合成・再生
     assert player.played == [("WAV:" + "ごめん。").encode()]
     assert "ごめん。" in calls
+
+
+class _RecEvents:
+    def __init__(self):
+        self.states = []
+
+    def state(self, value):
+        self.states.append(value)
+
+    def mouth(self, level):
+        pass
+
+
+async def test_events_emitted_for_normal_turn():
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["はい。"]),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        events=_RecEvents() if False else _RecEvents(),
+    )
+    ev = orch._events
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert ev.states == ["thinking", "speaking", "idle"]
+
+
+async def test_events_empty_transcript_emits_nothing():
+    ev = _RecEvents()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("   "),
+        llm_stream=_make_llm(["x。"]),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        events=ev,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert ev.states == []
+
+
+async def test_events_speaking_emitted_on_tts_fallback():
+    async def _bad_tts(text):
+        if text == "ダメ。":
+            raise RuntimeError("tts down")
+        return ("WAV:" + text).encode()
+
+    ev = _RecEvents()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["ダメ。"]),
+        tts=_bad_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        fallback_text="ごめん。",
+        events=ev,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert ev.states == ["thinking", "speaking", "idle"]

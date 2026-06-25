@@ -10,6 +10,7 @@ import numpy as np
 from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 from kotoha.llm import persona as _persona
 from kotoha.llm.sentence_splitter import SentenceSplitter
+from kotoha.events import NullEvents
 # Task 12 で feed_audio から使用
 from kotoha.voice.vad import VadSegmenter, BargeInDetector
 
@@ -54,6 +55,7 @@ class Orchestrator:
         play_timeout: float = 60.0,
         splitter_factory=SentenceSplitter,
         loop=None,
+        events=NullEvents(),
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -76,6 +78,8 @@ class Orchestrator:
         self._loop = loop
         self._turn_task: Optional[asyncio.Task] = None
         self._assistant_buf = ""
+        self._events = events
+        self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
         self._segmenters: dict = {}
@@ -133,6 +137,7 @@ class Orchestrator:
         if not text:
             return
         self.history.append({"role": "user", "content": text})
+        self._events.state("thinking")
         messages = self.persona.build_messages(list(self.history))
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:
@@ -143,6 +148,7 @@ class Orchestrator:
     async def _run_turn(self, messages: list[dict]) -> None:
         splitter = self.splitter_factory()
         self._assistant_buf = ""
+        self._spoke = False
         self._sentence_q = asyncio.Queue()
         self._play_q = asyncio.Queue()
         tasks = [
@@ -166,6 +172,7 @@ class Orchestrator:
             self._save_partial()
             self._sentence_q = None
             self._play_q = None
+            self._events.state("idle")
 
     async def _llm_to_sentences(self, messages, splitter) -> None:
         # LLM 消費は TTS/再生を待たずに進む(キューへ流すだけ)。
@@ -193,15 +200,22 @@ class Orchestrator:
             wav = await self._play_q.get()
             if wav is _SENTINEL:
                 return
+            self._emit_speaking_once()
             await asyncio.wait_for(
                 self.player.play_and_wait(wav), timeout=self._play_timeout
             )
+
+    def _emit_speaking_once(self) -> None:
+        if not self._spoke:
+            self._spoke = True
+            self._events.state("speaking")
 
     async def _speak_fallback(self) -> None:
         try:
             wav = await asyncio.wait_for(
                 self.tts(self.fallback_text), timeout=self._tts_timeout
             )
+            self._emit_speaking_once()
             await asyncio.wait_for(
                 self.player.play_and_wait(wav), timeout=self._play_timeout
             )
@@ -256,6 +270,7 @@ class Orchestrator:
     # ---- barge-in ----
     def request_bargein(self, user_id: Optional[int] = None) -> None:
         # 中断時点までの bot 発話を保存 (§4) -> (c)キューフラッシュ -> (b)LLM中断 -> (a)再生停止
+        self._events.state("listening")
         self._save_partial()
         self._flush_play_queue()
         if self._turn_task and not self._turn_task.done():
