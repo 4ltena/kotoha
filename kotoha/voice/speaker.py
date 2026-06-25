@@ -33,11 +33,12 @@ class LocalSpeaker:
     finished_callback はイベントループへ marshalling して完了を通知する。
     """
 
-    def __init__(self, *, sd=None, loop=None):
+    def __init__(self, *, sd=None, loop=None, on_amplitude=None):
         if sd is None:
             import sounddevice as sd  # 実機でのみ遅延 import(テストは fake を注入)
         self._sd = sd
         self._loop = loop
+        self._on_amplitude = on_amplitude
         self._interrupted = False
         self._stream = None
 
@@ -74,6 +75,12 @@ class LocalSpeaker:
             n = len(chunk)
             outdata[:n] = chunk
             idx += n
+            if self._on_amplitude is not None and n > 0:
+                level = float(np.sqrt(np.mean(np.square(chunk[:n]))))
+                try:
+                    self._on_amplitude(min(1.0, level))
+                except Exception:
+                    pass  # 口パク通知は best-effort(再生を妨げない)
             if n < frames:
                 outdata[n:] = 0.0  # 最終(部分)バッファを 0 埋め
                 raise self._sd.CallbackStop

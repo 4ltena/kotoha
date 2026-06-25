@@ -130,6 +130,32 @@ async def test_is_playing_reflects_active_stream():
     assert spk.is_playing() is False
 
 
+async def test_on_amplitude_reports_levels_for_nonsilent_audio():
+    rate = 32000
+    i16 = (np.ones(1024) * 16384).astype(np.int16)   # 一定振幅 0.5
+    wav = _make_wav(i16, rate=rate, channels=1)
+
+    levels = []
+    fake = FakeSd(auto_finish=True)
+    spk = LocalSpeaker(sd=fake, on_amplitude=lambda v: levels.append(v))
+    await spk.play_and_wait(wav)
+
+    assert levels                              # 振幅が通知された
+    assert all(0.0 <= v <= 1.0 for v in levels)
+    assert max(levels) > 0.0                    # 無音ではない
+
+
+async def test_on_amplitude_zero_for_silence():
+    wav = _make_wav(np.zeros(1024, dtype=np.int16), rate=32000, channels=1)
+    levels = []
+    fake = FakeSd(auto_finish=True)
+    spk = LocalSpeaker(sd=fake, on_amplitude=lambda v: levels.append(v))
+    await spk.play_and_wait(wav)
+
+    assert levels
+    assert max(levels) == 0.0
+
+
 @pytest.mark.integration
 def test_plays_short_tone_on_real_hardware():
     pytest.importorskip("sounddevice")
