@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 SAMPLE_RATE_HZ = 16000          # 内部音声: 16kHz mono float32
 VAD_WINDOW_SAMPLES = 512        # silero-vad は 16kHz で正確に 512 samples
@@ -26,3 +27,15 @@ class Config:
     stt_timeout_s: float = 30.0
     tts_timeout_s: float = 15.0
     play_timeout_s: float = 60.0
+    # --- GPT-SoVITS (api_v2.py /tts) ---
+    gptsovits_url: str = "http://localhost:9880"
+    gptsovits_ref_audio_path: str = ""      # GPT-SoVITS サーバ上の参照音声パス
+    gptsovits_prompt_text: str = ""         # ref_audio の文字起こし(任意)
+    gptsovits_text_lang: str = "ja"
+    gptsovits_prompt_lang: str = "ja"
+    gptsovits_speed_factor: float = 1.0
+    # --- ローカル音声 I/O (sounddevice) ---
+    local_user_id: int = 0
+    input_device: Optional[int | str] = None   # None=既定デバイス
+    output_device: Optional[int | str] = None  # None=既定デバイス
+    mic_blocksize: int = VAD_WINDOW_SAMPLES     # 512: 16kHz で silero-vad 1窓
