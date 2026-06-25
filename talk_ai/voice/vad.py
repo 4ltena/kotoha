@@ -91,3 +91,62 @@ class VadSegmenter:
         self._buf = []
         if self._reset_fn is not None:
             self._reset_fn()
+
+
+class BargeInDetector:
+    """再生中に流し込み、連続発話が trigger に達した瞬間に一度だけ True。
+
+    onset 以降の発話フレームを蓄積し、drain() で取り出せる(barge-in 後に
+    割り込み冒頭をセグメンタへ pre-roll として引き継ぐため)。
+    """
+
+    def __init__(
+        self,
+        prob_fn: Callable[[np.ndarray], float],
+        *,
+        threshold: float = 0.5,
+        trigger_ms: int = 250,
+        sample_rate: int = SAMPLE_RATE_HZ,
+        window: int = VAD_WINDOW_SAMPLES,
+        reset_fn: Optional[Callable[[], None]] = None,
+    ):
+        self._prob_fn = prob_fn
+        self._reset_fn = reset_fn
+        self._threshold = threshold
+        self._window = window
+        self._trigger = _frames_for_ms(trigger_ms, window, sample_rate)
+        self._tail = np.zeros(0, dtype=np.float32)
+        self._count = 0
+        self._fired = False
+        self._speech: list[np.ndarray] = []
+
+    def push(self, audio: np.ndarray) -> bool:
+        self._tail = np.concatenate([self._tail, np.asarray(audio, dtype=np.float32)])
+        fired = False
+        while len(self._tail) >= self._window:
+            frame = self._tail[: self._window]
+            self._tail = self._tail[self._window :]
+            if self._prob_fn(frame) >= self._threshold:
+                self._count += 1
+                self._speech.append(frame)
+                if self._count >= self._trigger and not self._fired:
+                    self._fired = True
+                    fired = True
+            else:
+                self._count = 0
+                self._fired = False
+                self._speech = []
+        return fired
+
+    def drain(self) -> np.ndarray:
+        buf = np.concatenate(self._speech) if self._speech else np.zeros(0, dtype=np.float32)
+        self._speech = []
+        return buf
+
+    def reset(self) -> None:
+        self._tail = np.zeros(0, dtype=np.float32)
+        self._count = 0
+        self._fired = False
+        self._speech = []
+        if self._reset_fn is not None:
+            self._reset_fn()
