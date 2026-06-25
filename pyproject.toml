@@ -2,6 +2,12 @@
 name = "talk-ai"
 version = "0.1.0"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "4ltena" }]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
 # base は軽量依存のみ。重い ML / Discord 系は extra へ分離(段階導入)。
 dependencies = [
     "aiohttp>=3.9",

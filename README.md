@@ -165,3 +165,9 @@ docs/
 Python 3.11+ / asyncio · sounddevice · Silero VAD · faster-whisper · Ollama(Qwen3.5) · GPT-SoVITS · aiohttp · numpy · pytest
 
 詳しい設計は **[設計書](docs/specs/2026-06-24-realtime-voice-bot-design.md)** を参照してください。
+
+---
+
+## 📄 ライセンス
+
+[MIT License](LICENSE) © 2026 4ltena
