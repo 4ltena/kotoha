@@ -38,3 +38,7 @@ def test_memory_defaults():
     assert c.memory_promote_threshold == 40
     assert c.memory_gemini_model_priority == ("flash-lite", "flash", "gemma")
     assert c.memory_short_term_max == 60
+
+
+def test_tts_readings_default():
+    assert Config().tts_readings == (("つくよみ", "ツクヨミ"),)

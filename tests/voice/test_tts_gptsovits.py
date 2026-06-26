@@ -104,6 +104,17 @@ async def test_synthesize_respects_overrides_and_base_url():
     assert body["media_type"] == "wav"    # extra で消えない
 
 
+async def test_synthesize_applies_readings():
+    sess = _FakeSession()
+    await synthesize(
+        "わたしはつくよみです。",
+        session=sess,
+        ref_audio_path="/srv/ref.wav",
+        readings=(("つくよみ", "ツクヨミ"),),
+    )
+    assert sess.calls[0]["json"]["text"] == "わたしはツクヨミです。"
+
+
 async def test_synthesize_raises_on_http_error():
     sess = _FakeSession(status=400)
     with pytest.raises(aiohttp.ClientResponseError):

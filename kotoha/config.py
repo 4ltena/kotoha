@@ -34,6 +34,8 @@ class Config:
     gptsovits_text_lang: str = "ja"
     gptsovits_prompt_lang: str = "ja"
     gptsovits_speed_factor: float = 1.0
+    # TTS 読み置換: (表記, 読み) の組。合成前に適用し固有名詞の読み・区切りを安定させる。
+    tts_readings: tuple = (("つくよみ", "ツクヨミ"),)
     # --- ローカル音声 I/O (sounddevice) ---
     local_user_id: int = 0
     input_device: Optional[int | str] = None   # None=既定デバイス

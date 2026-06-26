@@ -26,12 +26,17 @@ async def synthesize(
     base_url: str = "http://localhost:9880",
     timeout: aiohttp.ClientTimeout = DEFAULT_TTS_TIMEOUT,
     extra: dict | None = None,
+    readings: tuple = (),
 ) -> bytes:
     """text を 1 リクエストで合成し、完結した WAV バイト列を返す。
 
     ref_audio_path は GPT-SoVITS サーバホスト上の参照音声へのパス。
     extra で top_k / temperature 等の追加パラメータを上書き/追加できる。
+    readings は (表記, 読み) の組のタプル。合成前にテキストへ置換し、固有名詞の
+    読み・区切りを安定させる(例: つくよみ -> ツクヨミ で「つく/よみ」分離を防ぐ)。
     """
+    for src, dst in readings:
+        text = text.replace(src, dst)
     payload: dict = {
         "text": text,
         "text_lang": text_lang,

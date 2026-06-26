@@ -61,6 +61,7 @@ def build_orchestrator(
         text_lang=config.gptsovits_text_lang,
         prompt_lang=config.gptsovits_prompt_lang,
         speed_factor=config.gptsovits_speed_factor,
+        readings=config.tts_readings,
         # HTTP 層のタイムアウトも config に合わせる(既定 15s を上書き)。
         timeout=aiohttp.ClientTimeout(total=config.tts_timeout_s),
     )
