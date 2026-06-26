@@ -4,6 +4,7 @@ import re
 import threading
 import time
 from collections import deque
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -13,6 +14,7 @@ from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 from kotoha.llm import persona as _persona
 from kotoha.llm.sentence_splitter import SentenceSplitter
 from kotoha.llm.think_filter import ThinkFilter
+from kotoha.llm.date_humanize import humanize_dates
 from kotoha.events import NullEvents
 # Task 12 で feed_audio から使用
 from kotoha.voice.vad import VadSegmenter, BargeInDetector
@@ -252,6 +254,7 @@ class Orchestrator:
             if _is_stage_direction(sentence):
                 logger.info("skip stage direction: %s", sentence)
                 continue
+            sentence = humanize_dates(sentence, date.today())   # ISO日付を会話表現へ
             logger.info("synthesize: %s", sentence)
             _t_tts = time.perf_counter()
             wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
