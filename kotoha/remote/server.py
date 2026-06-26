@@ -76,6 +76,9 @@ class RemoteAudioServer:
     def _feed(self, data: bytes) -> None:
         if not self._on_audio or not data:
             return
+        # 半二重: 再生中はマイクを無視し、スピーカー音の回り込み(エコー)を誤認識しない。
+        if getattr(self.config, "remote_half_duplex", True) and self.player.is_playing():
+            return
         pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
         self._on_audio(self._user_id, pcm)
 

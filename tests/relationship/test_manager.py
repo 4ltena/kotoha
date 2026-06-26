@@ -6,7 +6,7 @@ from kotoha.relationship.store import RelationshipStore
 from kotoha.relationship.manager import RelationshipManager
 
 
-def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40):
+def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40, analyze=True):
     spawned = []
 
     def spawn(coro):
@@ -14,7 +14,10 @@ def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40):
         return coro
 
     store = RelationshipStore(str(tmp_path / "r.json"), affection=affection, mood=mood)
-    cfg = Config(relationship_path=str(tmp_path / "r.json"))
+    cfg = Config(
+        relationship_path=str(tmp_path / "r.json"),
+        relationship_analyze_enabled=analyze,
+    )
     mgr = RelationshipManager(
         store=store, config=cfg, session=None,
         loop=asyncio.get_event_loop(),
@@ -31,6 +34,16 @@ async def test_on_turn_applies_deltas(tmp_path):
     mgr.on_turn("やあ")
     await asyncio.gather(*spawned)
     assert mgr.store.affection == 92 and mgr.store.mood == 39
+
+
+async def test_on_turn_skips_analysis_when_disabled(tmp_path):
+    async def af(*a, **k):
+        return {"affection": 5}
+
+    mgr, spawned = _mgr(tmp_path, analyze_fn=af, analyze=False)
+    mgr.on_turn("やあ")
+    assert spawned == []                 # 分析を起動しない(VRAM/速度優先)
+    assert mgr.store.affection == 90      # 値は固定のまま
 
 
 async def test_persona_context_and_r18_gate(tmp_path):

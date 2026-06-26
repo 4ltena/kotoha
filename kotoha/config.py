@@ -50,12 +50,14 @@ class Config:
     relationship_init_respect: int = 90
     relationship_init_mood: int = 40
     relationship_r18_threshold: int = 80         # affection がこれ以上で成人向け表現を許容
+    relationship_analyze_enabled: bool = True    # 毎ターン背景でLLM分析するか。False で値は固定のまま注入のみ(VRAM/速度優先)
     # --- リモート音声 (別端末のブラウザのマイク/スピーカーを使う) ---
     remote_audio_enabled: bool = False           # True で 5108 のリモートI/Oを使い、ローカルmic/spkは使わない
     remote_audio_host: str = "0.0.0.0"           # LAN の他端末から見えるよう全インターフェイス
     remote_audio_port: int = 5108
     remote_audio_cert_dir: str = "data/certs"    # 自己署名証明書(cert.pem/key.pem)の置き場(data/ は git管理外)
     remote_audio_token: str = ""                 # 接続トークン。空なら起動時に自動生成し URL に付けて表示
+    remote_half_duplex: bool = True              # 再生中はマイク入力を無視(スピーカー音の回り込み=エコー誤認識を防ぐ)
     # --- ローカル音声 I/O (sounddevice) ---
     local_user_id: int = 0
     input_device: Optional[int | str] = None   # None=既定デバイス

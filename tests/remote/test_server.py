@@ -27,6 +27,15 @@ async def test_feed_no_callback_is_safe():
     srv._feed(np.array([1, 2], dtype=np.int16).tobytes())   # on_audio 未設定でも落ちない
 
 
+async def test_feed_dropped_while_playing_half_duplex():
+    srv = RemoteAudioServer(config=Config(), loop=asyncio.get_event_loop())
+    got = []
+    srv.set_on_audio(lambda u, p: got.append(p))
+    srv.player._playing = True            # 再生中
+    srv._feed(np.array([100, 200], dtype=np.int16).tobytes())
+    assert got == []                      # 半二重: 再生中は無視(エコー対策)
+
+
 class _Req:
     def __init__(self, t, origin=None, host="pc:5108"):
         self.query = {"t": t}

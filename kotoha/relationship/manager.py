@@ -47,7 +47,9 @@ class RelationshipManager:
     # ---- 更新 ----
     def on_turn(self, user_text: str, context=None) -> None:
         self._maybe_new_day()
-        self._spawn(self._run_analyze(user_text, context))
+        # 背景分析(4b)はVRAM/速度に響くため、無効時は値を固定したまま注入のみにする。
+        if getattr(self.config, "relationship_analyze_enabled", True):
+            self._spawn(self._run_analyze(user_text, context))
 
     def _maybe_new_day(self) -> None:
         today = self._clock().date().isoformat()
