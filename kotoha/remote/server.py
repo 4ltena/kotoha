@@ -129,6 +129,50 @@ class RemoteAudioServer:
             },
         )
 
+    async def _profile(self, request):
+        # iOS 向けの構成プロファイル(.mobileconfig)に CA 証明書(DER->base64)を埋め込む。
+        # 単体 .cer より確実にインストールできる(invalid profile 回避)。
+        import base64
+        import uuid
+
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+
+        with open(self._cert_path, "rb") as f:
+            pem = f.read()
+        der = x509.load_pem_x509_certificate(pem).public_bytes(serialization.Encoding.DER)
+        b64 = base64.b64encode(der).decode()
+        cert_uuid = str(uuid.uuid4())
+        prof_uuid = str(uuid.uuid4())
+        plist = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0"><dict>\n'
+            "<key>PayloadContent</key><array><dict>\n"
+            "<key>PayloadType</key><string>com.apple.security.root</string>\n"
+            "<key>PayloadVersion</key><integer>1</integer>\n"
+            "<key>PayloadIdentifier</key><string>net.kotoha.remote.ca</string>\n"
+            f"<key>PayloadUUID</key><string>{cert_uuid}</string>\n"
+            "<key>PayloadDisplayName</key><string>kotoha remote CA</string>\n"
+            "<key>PayloadCertificateFileName</key><string>kotoha-remote.cer</string>\n"
+            f"<key>PayloadContent</key><data>{b64}</data>\n"
+            "</dict></array>\n"
+            "<key>PayloadType</key><string>Configuration</string>\n"
+            "<key>PayloadVersion</key><integer>1</integer>\n"
+            "<key>PayloadIdentifier</key><string>net.kotoha.remote</string>\n"
+            f"<key>PayloadUUID</key><string>{prof_uuid}</string>\n"
+            "<key>PayloadDisplayName</key><string>kotoha remote</string>\n"
+            "</dict></plist>"
+        )
+        return web.Response(
+            body=plist.encode("utf-8"),
+            headers={
+                "Content-Type": "application/x-apple-aspen-config",
+                "Content-Disposition": 'attachment; filename="kotoha-remote.mobileconfig"',
+            },
+        )
+
     async def start(self) -> None:
         cert_path, key_path = ensure_self_signed_cert(
             self.config.remote_audio_cert_dir, ip_addresses=_local_ips()
@@ -138,7 +182,8 @@ class RemoteAudioServer:
         ssl_ctx.load_cert_chain(cert_path, key_path)
         app = web.Application()
         app.router.add_get("/", self._index)
-        app.router.add_get("/cert.pem", self._cert)   # 端末への信頼登録用
+        app.router.add_get("/cert.pem", self._cert)   # 端末への信頼登録用(DER)
+        app.router.add_get("/profile.mobileconfig", self._profile)   # iOS 用構成プロファイル
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_static("/static", _STATIC)   # vendor(three/three-vrm) と assets(VRM)
         self._runner = web.AppRunner(app)
