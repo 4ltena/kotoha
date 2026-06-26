@@ -26,6 +26,23 @@ logger = logging.getLogger(__name__)
 _STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 
+def _local_ips():
+    """証明書 SAN 用に 127.0.0.1 と既定経路の LAN IP を返す。"""
+    import socket
+
+    ips = ["127.0.0.1"]
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip not in ips:
+            ips.append(ip)
+    except Exception:
+        pass
+    return ips
+
+
 class RemoteAudioServer:
     def __init__(self, *, config, loop, user_id: int = 0, token=None):
         self.config = config
@@ -39,6 +56,7 @@ class RemoteAudioServer:
             loop=loop, send_audio=self._send_audio, send_control=self._send_control
         )
         self._runner = None
+        self._cert_path = None
 
     def set_on_audio(self, on_audio) -> None:
         self._on_audio = on_audio
@@ -93,12 +111,20 @@ class RemoteAudioServer:
     async def _index(self, request):
         return web.FileResponse(os.path.join(_STATIC, "index.html"))
 
+    async def _cert(self, request):
+        # 端末に信頼登録するための公開証明書(秘密鍵は配らない)。
+        return web.FileResponse(self._cert_path)
+
     async def start(self) -> None:
-        cert_path, key_path = ensure_self_signed_cert(self.config.remote_audio_cert_dir)
+        cert_path, key_path = ensure_self_signed_cert(
+            self.config.remote_audio_cert_dir, ip_addresses=_local_ips()
+        )
+        self._cert_path = cert_path
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_ctx.load_cert_chain(cert_path, key_path)
         app = web.Application()
         app.router.add_get("/", self._index)
+        app.router.add_get("/cert.pem", self._cert)   # 端末への信頼登録用
         app.router.add_get("/ws", self._ws_handler)
         app.router.add_static("/static", _STATIC)   # vendor(three/three-vrm) と assets(VRM)
         self._runner = web.AppRunner(app)
