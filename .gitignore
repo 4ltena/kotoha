@@ -10,3 +10,6 @@ CLAUDE.md
 docs/superpowers/
 .superpowers/
 run_dev.py
+
+# ローカル記憶(会話内容・公開しない)
+/data/

@@ -124,3 +124,39 @@ def test_build_orchestrator_defaults_events_to_null(monkeypatch):
         player=object(),
     )
     assert isinstance(captured["events"], NullEvents)
+
+
+def test_build_orchestrator_passes_memory():
+    import asyncio
+    from kotoha.config import Config
+    from kotoha.local_app import build_orchestrator
+
+    sentinel = object()
+
+    class _Tr:
+        def transcribe(self, audio):
+            return ""
+
+    class _Pl:
+        def is_playing(self):
+            return False
+
+        def stop(self):
+            pass
+
+        async def play_and_wait(self, wav):
+            return True
+
+    loop = asyncio.new_event_loop()
+    try:
+        orch = build_orchestrator(
+            Config(),
+            session=None,
+            loop=loop,
+            transcriber=_Tr(),
+            player=_Pl(),
+            memory=sentinel,
+        )
+        assert orch.memory is sentinel
+    finally:
+        loop.close()

@@ -1,11 +1,14 @@
 import asyncio
 import functools
 import logging
+import os
 
 import aiohttp
 
 from kotoha.config import Config
 from kotoha.health import check_local_services
+from kotoha.memory import MemoryStore, MemoryManager
+from kotoha.memory.discovery import discover_gemini_models
 from kotoha.events import NullEvents
 from kotoha.overlay_bridge import OverlayBridge
 from kotoha.llm.front_client import stream_chat
@@ -29,6 +32,7 @@ def build_orchestrator(
     vad_factory=SileroVad,
     events=NullEvents(),
     on_amplitude=None,
+    memory=None,
 ):
     """設定と長命セッションから Orchestrator を結線する(単体テスト可能)。
 
@@ -82,6 +86,7 @@ def build_orchestrator(
         play_timeout=config.play_timeout_s,
         loop=loop,
         events=events,
+        memory=memory,
     )
 
 
@@ -144,12 +149,37 @@ async def run_local(config: Config) -> None:
                 logger.exception("overlay bridge failed to start; continuing without overlay")
                 bridge = None   # events は NullEvents()、on_amplitude は None のまま
 
+        memory = None
+        if config.memory_enabled:
+            store = MemoryStore.load(config.memory_path)
+            api_key = os.environ.get("GEMINI_API_KEY")
+            model_chain: list[str] = []
+            if api_key:
+                try:
+                    model_chain = await discover_gemini_models(
+                        api_key,
+                        priority=config.memory_gemini_model_priority,
+                        session=session,
+                    )
+                    print(f"[memory] gemini models: {model_chain}")
+                except Exception:
+                    logger.warning("gemini model discovery failed; promotion disabled")
+            memory = MemoryManager(
+                store=store,
+                config=config,
+                session=session,
+                loop=loop,
+                gemini_models=model_chain,
+                api_key=api_key,
+            )
+            print(f"[memory] enabled (store={config.memory_path})")
         orch = build_orchestrator(
             config,
             session=session,
             loop=loop,
             events=events,
             on_amplitude=on_amplitude,
+            memory=memory,
         )
         # TTS ウォームアップ: 初回合成が払うモデル/参照キャッシュ確立コスト(数秒)を
         # 会話開始前に消化し、最初の応答の遅延を無くす。合成結果は再生せず捨てる。
@@ -177,6 +207,8 @@ async def run_local(config: Config) -> None:
             await asyncio.Event().wait()   # KeyboardInterrupt まで常駐
         finally:
             mic.stop()
+            if memory is not None:
+                await memory.aclose()
             if bridge is not None:
                 await bridge.stop()
 
