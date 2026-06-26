@@ -54,12 +54,12 @@ class MemoryManager:
         self.store.raw_window.append({"role": "user", "content": text})
 
     def build_messages(self) -> list[dict]:
+        # 時刻は orchestrator がターン直前に注入する(最新・最も近い位置で確実に渡す)。
         return composer.build_messages(
             immutable=self._immutable,
             long_term=self.store.long_term,
             short_term=self.store.short_term,
             raw_window=self.store.raw_window,
-            time_context=composer.format_time_context(self._clock()),
         )
 
     def on_turn_end(self, assistant_text: str) -> None:

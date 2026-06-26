@@ -269,8 +269,8 @@ async def test_api_search_context_injected_before_user():
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     msgs = captured[0]
     assert msgs[-1]["role"] == "user"                       # 末尾はユーザー発話
-    assert msgs[-2]["content"].startswith("【APIで取得した情報】")  # 直前に API 文脈
-    assert "東京の現在の天気" in msgs[-2]["content"]
+    api_msgs = [m for m in msgs if m.get("content", "").startswith("【APIで取得した情報】")]
+    assert api_msgs and "東京の現在の天気" in api_msgs[0]["content"]
 
 
 class _FakeRelationship:
@@ -301,3 +301,21 @@ async def test_relationship_context_injected_and_on_turn_called():
     msgs = captured[0]
     assert any("ふたりの関係" in m.get("content", "") for m in msgs)
     assert rel.turns == [("やあ", None)]   # 発話と(API)文脈で更新起動
+
+
+async def test_current_time_injected_just_before_user():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("今何時？"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    msgs = captured[0]
+    assert msgs[-1]["role"] == "user"                  # 末尾はユーザー発話
+    assert "今の時刻" in msgs[-2]["content"]            # その直前に現在時刻
+    assert "時" in msgs[-2]["content"]

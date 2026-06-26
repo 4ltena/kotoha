@@ -4,7 +4,7 @@ import re
 import threading
 import time
 from collections import deque
-from datetime import date
+from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -14,7 +14,7 @@ from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 from kotoha.llm import persona as _persona
 from kotoha.llm.sentence_splitter import SentenceSplitter
 from kotoha.llm.think_filter import ThinkFilter
-from kotoha.llm.date_humanize import humanize_dates
+from kotoha.llm.date_humanize import humanize_dates, format_time_spoken
 from kotoha.events import NullEvents
 # Task 12 で feed_audio から使用
 from kotoha.voice.vad import VadSegmenter, BargeInDetector
@@ -183,6 +183,12 @@ class Orchestrator:
         if self.relationship is not None:
             messages.insert(-1, {"role": "system", "content": self.relationship.persona_context()})
             self.relationship.on_turn(text, context=ctx)
+        # 現在時刻を毎ターン新しく、ユーザー発話の直前(最も近い位置)へ注入し確実に渡す。
+        messages.insert(-1, {
+            "role": "system",
+            "content": "【今の時刻】" + format_time_spoken(datetime.now())
+            + " 時刻や日付を聞かれたら、この値をそのまま使って普通の文で答える。",
+        })
         self._events.state("thinking")
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:

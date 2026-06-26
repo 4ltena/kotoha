@@ -51,20 +51,6 @@ async def test_build_messages_uses_immutable_and_window(tmp_path):
     assert msgs[-1] == {"role": "user", "content": "やあ"}
 
 
-async def test_build_messages_includes_injected_time_band(tmp_path):
-    from datetime import datetime
-
-    async def cf(*a, **k):
-        return []
-    mgr, _ = _manager(
-        tmp_path, compress_fn=cf, clock=lambda: datetime(2026, 6, 27, 22, 0)
-    )
-    mgr.add_user("おはよう")
-    sys = mgr.build_messages()[0]["content"]
-    assert "いまの時刻" in sys
-    assert "夜" in sys           # 22時 -> 夜
-
-
 async def test_overflow_moves_to_pending_and_triggers_compress(tmp_path):
     seen = {}
 

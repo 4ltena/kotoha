@@ -11,6 +11,29 @@ from datetime import date
 _ISO_DATE_RE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})(?:\s*[（(][^）)]*[）)])?")
 _REL = {0: "今日", 1: "明日", 2: "明後日", 3: "明々後日"}
 
+_WEEKDAYS = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def _time_band(hour: int) -> str:
+    if 5 <= hour < 11:
+        return "朝"
+    if 11 <= hour < 17:
+        return "昼"
+    if 17 <= hour < 19:
+        return "夕方"
+    if 19 <= hour < 24:
+        return "夜"
+    return "深夜"
+
+
+def format_time_spoken(now) -> str:
+    """現在時刻を話し言葉の明確な形にする(モデルがそのまま答えられるよう)。"""
+    wd = _WEEKDAYS[now.weekday()]
+    return (
+        f"今は{now.year}年{now.month}月{now.day}日({wd}) "
+        f"{now.hour}時{now.minute:02d}分ごろ、{_time_band(now.hour)}です。"
+    )
+
 
 def humanize_dates(text: str, today: date) -> str:
     """text 中の ISO 日付を会話的表現に置換して返す。"""
