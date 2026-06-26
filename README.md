@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-blue?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 
-# Kotoha — 言葉
+# Kotoha
 
 自分の声で、止まらずに喋れるローカル音声AI。
 A local voice AI that replies in a clone of your own voice, without breaking the flow.
