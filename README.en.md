@@ -1,6 +1,6 @@
 [日本語](README.md) | **English**
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/github/v/release/4ltena/kotoha?label=version&color=blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
@@ -10,11 +10,11 @@
 A local voice AI that replies in a clone of your own voice, without breaking the flow.
 自分の声で、止まらずに喋れるローカル音声AI。
 
-version 0.1.0
+Talk into the mic and a local LLM thinks, then answers in a clone of your own voice. Everything runs on your own machine and nothing goes to the cloud (only the optional long-term-memory consolidation may reach out to Gemini). Cut in while it is talking and it stops to listen again. That last part is called barge-in.
 
-Talk into the mic and a local LLM thinks, then answers in a clone of your own voice. Everything runs on your own machine and nothing goes to the cloud. Cut in while it is talking and it stops to listen again. That last part is called barge-in.
+The character that replies is "Tsukuyomi". She compresses and remembers past conversations, keeps a numeric relationship with the user, and weaves in the current time and the weather. A Japanese-specialized LLM is also selectable.
 
-The longer-term plan is Discord voice support, with background work like research, coding, and app control running asynchronously and folding back into the conversation. A desktopmate-style overlay that puts a VRM character on the desktop is moving in parallel. For now the work is a local-only conversation MVP. The design is written up in the [design doc](docs/specs/2026-06-24-realtime-voice-bot-design.md).
+The longer-term plan is Discord voice support, with background work like research, coding, and app control running asynchronously and folding back into the conversation. A desktopmate-style overlay that puts a VRM character on the desktop is moving in parallel. The design is written up in the [design doc](docs/specs/2026-06-24-realtime-voice-bot-design.md).
 
 ## What it does
 
@@ -22,6 +22,10 @@ The longer-term plan is Discord voice support, with background work like researc
 - Synthesis and playback overlap, sentence by sentence, so it starts speaking sooner.
 - GPT-SoVITS reproduces a target voice from about a minute of fine-tuning.
 - Speak up mid-playback and it stops at once to hear you out.
+- Keeps a three-layer memory (immutable, long-term, short-term), compressing the gist to remember over time.
+- Holds the relationship with the user as numbers such as affection and mood, adapting tone and closeness to the conversation.
+- Pulls in outside facts like the weather through API search and folds them into the talk.
+- Knows the current time and date, and gets puzzled by greetings that do not fit the hour.
 
 ## How it works
 
@@ -74,6 +78,17 @@ sequenceDiagram
 
 Silero VAD holds internal state. It is reset at every boundary: when an utterance finalizes, on barge-in, and when the speaker changes. The threading and queue design is in design doc §4.
 
+## Memory, relationship, and API search
+
+Before each reply, Tsukuyomi accounts for who she is and the situation. The prompt is built in priority order: the immutable memory first (name, tone, core character), then long-term memory (the user's profile and tastes), and finally short-term memory (the gist of this conversation).
+
+- Memory. Recent turns stay in context as-is; older ones pushed out get compressed into bullet points by a lightweight LLM into short-term memory. Once short-term memory fills up, Gemini consolidates it into long-term memory. State persists in `data/memory.json`. Without a Gemini key, compression still works and only consolidation stops.
+- Relationship. Affection, friendship, trust, and respect (0-100), plus the day's mood (-50 to 50). Each turn a lightweight LLM nudges them slightly from the utterance and the situation; higher values mean a closer tone. State persists in `data/relationship.json`.
+- API search. If an utterance is a weather question, the current weather from OpenWeather is fetched and added to that turn's context only. More providers can be added.
+- Time and date. She speaks with the current time in mind, and forms like `2026-06-28` are turned into conversational expressions such as today or tomorrow.
+
+Memory and relationship persist under `data/` (git-ignored), and API keys are read from `.env`. The conversation still runs even when none of these are set.
+
 ## Usage
 
 ### Local services you need
@@ -83,8 +98,10 @@ Silero VAD holds internal state. It is reset at every boundary: when an utteranc
 | [Ollama](https://ollama.com/) with `qwen3.5:4b` | Front LLM | `http://localhost:11434` |
 | [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) server `api_v2.py` | Speech synthesis. Needs a fine-tuned model of the target voice and a reference clip | `http://localhost:9880` |
 | faster-whisper | Speech recognition. Downloads the model on first run | `large-v3-turbo` |
+| Gemini API (optional) | Consolidation into long-term memory. Only consolidation is disabled if unset | `GEMINI_API_KEY` |
+| OpenWeather API (optional) | Weather API search. Only weather lookup is disabled if unset | `OPENWEATHER_API_KEY` |
 
-An RTX 4080 16GB is the assumed GPU. STT and VAD also run on CPU.
+An RTX 4080 16GB is the assumed GPU. STT and VAD also run on CPU. The default setup fits the reply model, the compression model, and recognition together within 16GB.
 
 ### Setup
 
@@ -95,10 +112,15 @@ python -m venv .venv && source .venv/bin/activate
 # 2. Install dependencies, including ML, local audio I/O, and dev tools
 pip install -e ".[ml,local,dev]"
 
-# 3. Pull the model with Ollama
+# 3. Pull models with Ollama. A lightweight model for memory compression and relationship analysis
 ollama pull qwen3.5:4b
+# Optional: a Japanese-specialized model for replies
+ollama pull hf.co/mmnga-o/NVIDIA-Nemotron-Nano-9B-v2-Japanese-gguf:Q5_K_M
 
 # 4. Start the GPT-SoVITS server separately, port 9880, with the fine-tuned voice
+
+# 5. Optional: create .env to use API keys
+cp .env.example .env   # fill in GEMINI_API_KEY and OPENWEATHER_API_KEY
 ```
 
 ### Run
@@ -143,8 +165,11 @@ The local MVP pipeline has every module in place. To make sound, set a GPT-SoVIT
 | Diagnostics | `diagnostics.py` | done |
 | Overlay link, SP2 | `overlay_bridge.py`, `events.py` | done, Python side |
 | Overlay rendering, SP1 | `overlay/`, Electron and three-vrm | done |
+| Three-layer memory | `memory/` | done |
+| Relationship parameters | `relationship/` | done |
+| API search (weather) | `tools/` | done |
 
-Python unit tests pass 84 cases. The overlay rendering foundation, SP1, is implemented, and desktop interaction, SP3, is in progress. Discord support comes after the MVP runs end to end.
+Python unit tests pass 149 cases. The overlay is implemented through rendering (SP1) and desktop interaction (SP3). Discord support remains a later plan.
 
 ## Layout
 
@@ -161,6 +186,12 @@ docs/
 
 Built on Python 3.11+ and asyncio, with sounddevice, Silero VAD, faster-whisper, Ollama Qwen3.5, GPT-SoVITS, aiohttp, numpy, and pytest. See the [design doc](docs/specs/2026-06-24-realtime-voice-bot-design.md) for details.
 
+## Credits
+
+The voice is referenced and trained from the [Tsukuyomi-chan Corpus](https://tyc.rei-yumesaki.net/about/introduction/). The character "Tsukuyomi-chan" is the work of Rei Yumesaki, and the **default character** "Tsukuyomi" in this project derives from it (the character is changeable; Tsukuyomi is the default). Follow the distributor's terms when using it.
+
 ## License
 
 [Apache License 2.0](LICENSE) © 2026 4ltena
+
+This covers the code in this repository. The Tsukuyomi-chan voice and character are governed by the terms noted in Credits above.
