@@ -1,7 +1,9 @@
 import asyncio
+import contextlib
 import functools
 import logging
 import os
+import time
 
 import aiohttp
 
@@ -112,6 +114,61 @@ def _print_audio_devices(config) -> None:
         print(f"[audio] failed to query devices: {e}")
 
 
+async def _warm_up(orch, config, loop) -> None:
+    """各ステージ(TTS/LLM/STT/VAD)の初回コールドコストを会話開始前に消化する。
+
+    最大の初回コストは LLM(Ollama)の重み VRAM ロード + 初回 prefill。これを
+    マイク開始前に払うことで、最初の発話への応答遅延を無くす。各段は失敗しても致命でない。
+    """
+    # TTS: 初回合成のモデル/参照キャッシュ確立コスト。
+    t0 = time.perf_counter()
+    print("Warming up TTS...")
+    try:
+        await asyncio.wait_for(orch.tts("ウォームアップ。"), timeout=config.tts_timeout_s)
+        print(f"TTS warm-up done ({time.perf_counter() - t0:.2f}s)")
+    except Exception:
+        logger.warning("TTS warm-up failed; continuing")
+
+    # LLM: 初回 /api/chat は重みの VRAM ロード + 初回 prefill を払う(最大の初回コスト)。
+    t0 = time.perf_counter()
+    print("Warming up LLM...")
+    try:
+        async with contextlib.aclosing(
+            orch.llm_stream(
+                [{"role": "user", "content": "こんにちは"}], model=config.ollama_model
+            )
+        ) as gen:
+            async for _ in gen:
+                break   # 最初のトークンでロード+prefill完了。残りは捨てる。
+        print(f"LLM warm-up done ({time.perf_counter() - t0:.2f}s)")
+    except Exception:
+        logger.warning("LLM warm-up failed; continuing")
+
+    # STT: faster-whisper の初回推論カーネル(cuDNN/cuBLAS)初期化を消化。
+    t0 = time.perf_counter()
+    print("Warming up STT...")
+    try:
+        import numpy as np
+
+        from kotoha.config import SAMPLE_RATE_HZ
+
+        dummy = np.random.randn(SAMPLE_RATE_HZ).astype(np.float32) * 0.01
+        await asyncio.wait_for(
+            loop.run_in_executor(None, orch.transcriber.transcribe, dummy),
+            timeout=config.stt_timeout_s,
+        )
+        print(f"STT warm-up done ({time.perf_counter() - t0:.2f}s)")
+    except Exception:
+        logger.warning("STT warm-up failed; continuing")
+
+    # VAD: silero+torch のロードをマイク開始前に済ませ、最初の発話検出の遅れを防ぐ。
+    try:
+        orch._get_segmenter(config.local_user_id)
+        orch._get_bargein_detector(config.local_user_id)
+    except Exception:
+        logger.warning("VAD warm-up failed; continuing")
+
+
 async def run_local(config: Config) -> None:
     """ローカル(マイク+スピーカ)で会話ループを常駐させる。integration 専用。"""
     # .env からの環境変数読込(任意)。GEMINI_API_KEY 等をリポジトリ外に置くため。
@@ -188,19 +245,9 @@ async def run_local(config: Config) -> None:
             on_amplitude=on_amplitude,
             memory=memory,
         )
-        # TTS ウォームアップ: 初回合成が払うモデル/参照キャッシュ確立コスト(数秒)を
-        # 会話開始前に消化し、最初の応答の遅延を無くす。合成結果は再生せず捨てる。
-        try:
-            import time
-
-            t0 = time.perf_counter()
-            print("Warming up TTS...")
-            await asyncio.wait_for(
-                orch.tts("ウォームアップ。"), timeout=config.tts_timeout_s
-            )
-            print(f"TTS warm-up done ({time.perf_counter() - t0:.2f}s)")
-        except Exception:
-            logger.warning("TTS warm-up failed; continuing")
+        # ウォームアップ: 各ステージの初回コールドコスト(モデルのVRAMロード/カーネル初期化)を
+        # 会話開始前に消化し、最初の応答の遅延を無くす。いずれも失敗しても致命ではない。
+        await _warm_up(orch, config, loop)
 
         mic = MicCapture(
             make_on_audio(orch),

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -126,10 +127,12 @@ class Orchestrator:
             self._turn_task.cancel()
 
     async def handle_utterance(self, user_id: int, audio: np.ndarray) -> None:
+        self._turn_t0 = time.perf_counter()   # ターン開始時刻(レイテンシ計測用)
         self._preempt_turn()    # 進行中ターンがあれば partial 保存してから cancel(点10)
         loop = asyncio.get_running_loop()
         self._loop = loop
         # STT: executor で実行し wait_for で上限(点5)。例外は沈黙扱い(点4)。
+        _t_stt = time.perf_counter()
         try:
             text = await asyncio.wait_for(
                 loop.run_in_executor(None, self.transcriber.transcribe, audio),
@@ -138,6 +141,7 @@ class Orchestrator:
         except Exception:
             logger.exception("STT failed (user=%s); skipping as silence", user_id)
             return
+        logger.info("[latency] STT: %.2fs", time.perf_counter() - _t_stt)
         text = (text or "").strip()
         if not text:
             logger.info("STT: empty result; skipping")
@@ -187,9 +191,20 @@ class Orchestrator:
 
     async def _llm_to_sentences(self, messages, splitter) -> None:
         # LLM 消費は TTS/再生を待たずに進む(キューへ流すだけ)。
+        _t0 = getattr(self, "_turn_t0", time.perf_counter())
+        _first_token = True
+        _first_sentence = True
         async for piece in self.llm_stream(messages, model=self.model):
+            if _first_token:
+                logger.info("[latency] LLM first token: %.2fs", time.perf_counter() - _t0)
+                _first_token = False
             self._assistant_buf += piece
             for sentence in splitter.push(piece):
+                if _first_sentence:
+                    logger.info(
+                        "[latency] LLM first sentence: %.2fs", time.perf_counter() - _t0
+                    )
+                    _first_sentence = False
                 await self._sentence_q.put(sentence)
         tail = splitter.flush()
         if tail:
@@ -204,7 +219,13 @@ class Orchestrator:
                 await self._play_q.put(_SENTINEL)
                 return
             logger.info("synthesize: %s", sentence)
+            _t_tts = time.perf_counter()
             wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
+            logger.info(
+                "[latency] TTS synth: %.2fs (%d chars)",
+                time.perf_counter() - _t_tts,
+                len(sentence),
+            )
             await self._play_q.put(wav)
 
     async def _audio_to_playback(self) -> None:
@@ -212,6 +233,11 @@ class Orchestrator:
             wav = await self._play_q.get()
             if wav is _SENTINEL:
                 return
+            if not self._spoke:
+                logger.info(
+                    "[latency] first audio to speaker: %.2fs",
+                    time.perf_counter() - getattr(self, "_turn_t0", time.perf_counter()),
+                )
             self._emit_speaking_once()
             await asyncio.wait_for(
                 self.player.play_and_wait(wav), timeout=self._play_timeout
