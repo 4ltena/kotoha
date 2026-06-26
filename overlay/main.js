@@ -1,13 +1,28 @@
-const { app, BrowserWindow, screen } = require("electron");
+const { app, BrowserWindow, screen, ipcMain } = require("electron");
 const path = require("node:path");
 
 const DEV_URL = "http://localhost:5273";
+
+let win = null;
+
+ipcMain.handle("overlay:getDisplay", () => {
+  const d = screen.getPrimaryDisplay();
+  return { workArea: d.workArea, bounds: win && !win.isDestroyed() ? win.getBounds() : null };
+});
+ipcMain.on("overlay:setPosition", (_e, x, y) => {
+  if (!win || win.isDestroyed()) return;
+  win.setPosition(Math.round(x), Math.round(y));
+});
+ipcMain.on("overlay:setInteractive", (_e, interactive) => {
+  if (!win || win.isDestroyed()) return;
+  win.setIgnoreMouseEvents(!interactive, { forward: true });
+});
 
 function createWindow() {
   const wa = screen.getPrimaryDisplay().workAreaSize;
   const x = wa.width - 400 - 20;
   const y = wa.height - 600 - 20;
-  const win = new BrowserWindow({
+  win = new BrowserWindow({
     width: 400,
     height: 600,
     x,
