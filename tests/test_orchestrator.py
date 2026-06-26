@@ -226,6 +226,31 @@ async def test_memory_path_calls_add_user_and_on_turn_end():
     assert len(orch.history) == 0   # memory 経路では deque を使わない
 
 
+def test_to_speakable_strips_quotes_and_drops_symbol_only():
+    from kotoha.orchestrator import _to_speakable
+    assert _to_speakable("「はい。」") == "はい。"
+    assert _to_speakable("」") == ""
+    assert _to_speakable("…") == ""
+    assert _to_speakable("（）") == ""
+    assert _to_speakable("あっ") == "あっ"
+
+
+async def test_symbol_only_sentences_not_synthesized():
+    # 引用符・記号だけの断片は TTS(GPT-SoVITS 400 の原因)へ送らない。
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["「はい。", "」", "…"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == [("WAV:" + "はい。").encode()]   # 引用符は除去、記号のみは破棄
+
+
 async def test_stage_direction_parenthetical_not_spoken():
     # ト書きの括弧書きだけの文(（02:15 ごろ）)は TTS へ流さない。
     player = _RecPlayer()

@@ -31,6 +31,22 @@ def _is_stage_direction(text: str) -> bool:
     return bool(_STAGE_DIRECTION_RE.match(text))
 
 
+# TTS へ送る前に取り除く引用符類。
+_TTS_STRIP = "「」『』\"'“”‘’"
+
+
+def _to_speakable(text: str) -> str:
+    """引用符を除き、発話可能な文字(かな/漢字/英数)が無ければ空を返す。
+
+    記号・句読点・引用符だけの断片を GPT-SoVITS に送ると 400 になるため、その手前で弾く。
+    """
+    s = text
+    for c in _TTS_STRIP:
+        s = s.replace(c, "")
+    s = s.strip()
+    return s if re.search(r"\w", s) else ""
+
+
 def make_on_audio(orch):
     """受信スレッド -> Orchestrator.feed_audio の薄い配線(単体テスト可能)。"""
     def on_audio(user_id, audio):
@@ -268,13 +284,17 @@ class Orchestrator:
                 logger.info("skip stage direction: %s", sentence)
                 continue
             sentence = humanize_dates(sentence, date.today())   # ISO日付を会話表現へ
-            logger.info("synthesize: %s", sentence)
+            spoken = _to_speakable(sentence)
+            if not spoken:
+                logger.info("skip non-speech: %s", sentence)   # 記号・引用符のみは TTS へ送らない
+                continue
+            logger.info("synthesize: %s", spoken)
             _t_tts = time.perf_counter()
-            wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
+            wav = await asyncio.wait_for(self.tts(spoken), timeout=self._tts_timeout)
             logger.info(
                 "[latency] TTS synth: %.2fs (%d chars)",
                 time.perf_counter() - _t_tts,
-                len(sentence),
+                len(spoken),
             )
             await self._play_q.put(wav)
 
