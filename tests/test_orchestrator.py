@@ -190,3 +190,37 @@ async def test_events_speaking_emitted_on_tts_fallback():
     )
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     assert ev.states == ["thinking", "speaking", "idle"]
+
+
+class _FakeMemory:
+    def __init__(self):
+        self.users = []
+        self.ended = []
+
+    def add_user(self, text):
+        self.users.append(text)
+
+    def build_messages(self):
+        return [{"role": "system", "content": "MEM"}, {"role": "user", "content": self.users[-1]}]
+
+    def on_turn_end(self, text):
+        self.ended.append(text)
+
+
+async def test_memory_path_calls_add_user_and_on_turn_end():
+    mem = _FakeMemory()
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["はい", "です。"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        memory=mem,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert mem.users == ["やあ"]
+    assert mem.ended == ["はいです。"]
+    assert len(orch.history) == 0   # memory 経路では deque を使わない

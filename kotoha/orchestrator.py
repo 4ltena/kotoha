@@ -56,6 +56,7 @@ class Orchestrator:
         splitter_factory=SentenceSplitter,
         loop=None,
         events=NullEvents(),
+        memory=None,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -79,6 +80,7 @@ class Orchestrator:
         self._turn_task: Optional[asyncio.Task] = None
         self._assistant_buf = ""
         self._events = events
+        self.memory = memory
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -97,10 +99,12 @@ class Orchestrator:
     def _save_partial(self) -> None:
         # 中断時点までの bot 発話を履歴へ。冪等(buf を毎回クリア)。
         if self._assistant_buf.strip():
-            logger.info("response: %s", self._assistant_buf.strip())
-            self.history.append(
-                {"role": "assistant", "content": self._assistant_buf.strip()}
-            )
+            text = self._assistant_buf.strip()
+            logger.info("response: %s", text)
+            if self.memory is not None:
+                self.memory.on_turn_end(text)
+            else:
+                self.history.append({"role": "assistant", "content": text})
         self._assistant_buf = ""
 
     def _flush_play_queue(self) -> None:
@@ -139,9 +143,13 @@ class Orchestrator:
             logger.info("STT: empty result; skipping")
             return
         logger.info("recognized: %s", text)
-        self.history.append({"role": "user", "content": text})
+        if self.memory is not None:
+            self.memory.add_user(text)
+            messages = self.memory.build_messages()
+        else:
+            self.history.append({"role": "user", "content": text})
+            messages = self.persona.build_messages(list(self.history))
         self._events.state("thinking")
-        messages = self.persona.build_messages(list(self.history))
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:
             await self._turn_task
