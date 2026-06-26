@@ -25,3 +25,19 @@ async def test_feed_decodes_int16_to_float32():
 async def test_feed_no_callback_is_safe():
     srv = RemoteAudioServer(config=Config(), loop=asyncio.get_event_loop())
     srv._feed(np.array([1, 2], dtype=np.int16).tobytes())   # on_audio 未設定でも落ちない
+
+
+class _Req:
+    def __init__(self, t, origin=None, host="pc:5108"):
+        self.query = {"t": t}
+        self.headers = {"Origin": origin} if origin else {}
+        self.host = host
+
+
+async def test_authorized_checks_token_and_origin():
+    srv = RemoteAudioServer(config=Config(), loop=asyncio.get_event_loop(), token="secret")
+    assert srv._authorized(_Req("secret")) is True
+    assert srv._authorized(_Req("wrong")) is False
+    assert srv._authorized(_Req("secret", origin="https://pc:5108")) is True
+    assert srv._authorized(_Req("secret", origin="https://evil.example")) is False
+

@@ -16,3 +16,6 @@ run_dev.py
 
 # 環境変数(APIキー等の秘密情報。.env.example のみ公開)
 .env
+
+# 大きな VRM アセット(つくよみちゃん。第三者著作物のため公開しない)
+kotoha/remote/static/assets/*.vrm

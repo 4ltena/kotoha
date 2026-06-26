@@ -11,7 +11,9 @@
 
 import logging
 import os
+import secrets
 import ssl
+from urllib.parse import urlparse
 
 import numpy as np
 from aiohttp import web
@@ -25,11 +27,13 @@ _STATIC = os.path.join(os.path.dirname(__file__), "static")
 
 
 class RemoteAudioServer:
-    def __init__(self, *, config, loop, user_id: int = 0):
+    def __init__(self, *, config, loop, user_id: int = 0, token=None):
         self.config = config
         self._loop = loop
         self._user_id = user_id
-        self._ws = None            # 能動クライアント
+        # 接続トークン(空なら自動生成)。LAN 公開のため認証で private 応答を保護する。
+        self.token = token or secrets.token_urlsafe(16)
+        self._ws = None            # 能動クライアント(同時1台のみ)
         self._on_audio = None
         self.player = RemotePlayer(
             loop=loop, send_audio=self._send_audio, send_control=self._send_control
@@ -57,8 +61,21 @@ class RemoteAudioServer:
         pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
         self._on_audio(self._user_id, pcm)
 
+    def _authorized(self, request) -> bool:
+        t = request.query.get("t", "")
+        if not secrets.compare_digest(t, self.token):
+            return False
+        origin = request.headers.get("Origin")
+        if origin and urlparse(origin).netloc != request.host:
+            return False   # cross-site WebSocket hijacking 対策(同一オリジンのみ)
+        return True
+
     async def _ws_handler(self, request):
-        ws = web.WebSocketResponse(max_msg_size=0)   # 無制限(音声バイナリ)
+        if not self._authorized(request):
+            return web.Response(status=401, text="unauthorized")
+        if self._ws is not None and not self._ws.closed:
+            return web.Response(status=409, text="busy")   # 同時接続は1台のみ(乗っ取り防止)
+        ws = web.WebSocketResponse(max_msg_size=1 << 20)   # 1MiB 上限(メモリDoS対策)
         await ws.prepare(request)
         self._ws = ws
         logger.info("remote client connected: %s", request.remote)
@@ -83,6 +100,7 @@ class RemoteAudioServer:
         app = web.Application()
         app.router.add_get("/", self._index)
         app.router.add_get("/ws", self._ws_handler)
+        app.router.add_static("/static", _STATIC)   # vendor(three/three-vrm) と assets(VRM)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(

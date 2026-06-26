@@ -273,7 +273,8 @@ async def run_local(config: Config) -> None:
             from kotoha.remote.server import RemoteAudioServer
 
             remote_server = RemoteAudioServer(
-                config=config, loop=loop, user_id=config.local_user_id
+                config=config, loop=loop, user_id=config.local_user_id,
+                token=config.remote_audio_token or None,
             )
             player = remote_server.player
 
@@ -296,10 +297,10 @@ async def run_local(config: Config) -> None:
             remote_server.set_on_audio(make_on_audio(orch))
             await remote_server.start()
             print(
-                f"[remote] HTTPS/WSS on https://{config.remote_audio_host}:"
-                f"{config.remote_audio_port}/  別端末のブラウザで PC の LAN IP を開く"
-                "(自己署名証明書の警告は許可)。Ctrl+C で終了。"
+                f"[remote] 別端末のブラウザで開く: "
+                f"https://<PCのLAN IP>:{config.remote_audio_port}/?t={remote_server.token}"
             )
+            print("  自己署名証明書の警告は許可してください。Ctrl+C で終了。")
         else:
             mic = MicCapture(
                 make_on_audio(orch),

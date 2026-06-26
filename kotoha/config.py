@@ -55,6 +55,7 @@ class Config:
     remote_audio_host: str = "0.0.0.0"           # LAN の他端末から見えるよう全インターフェイス
     remote_audio_port: int = 5108
     remote_audio_cert_dir: str = "data/certs"    # 自己署名証明書(cert.pem/key.pem)の置き場(data/ は git管理外)
+    remote_audio_token: str = ""                 # 接続トークン。空なら起動時に自動生成し URL に付けて表示
     # --- ローカル音声 I/O (sounddevice) ---
     local_user_id: int = 0
     input_device: Optional[int | str] = None   # None=既定デバイス

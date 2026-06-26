@@ -42,7 +42,9 @@ def ensure_self_signed_cert(cert_dir: str) -> tuple[str, str]:
         )
         .sign(key, hashes.SHA256())
     )
-    with open(key_path, "wb") as f:
+    # 秘密鍵は所有者のみ読み書き(0o600)で作成する(Windows では best-effort)。
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
         f.write(
             key.private_bytes(
                 serialization.Encoding.PEM,
