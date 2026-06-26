@@ -43,8 +43,9 @@ const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true 
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
-camera.position.set(0, 1.32, 1.45);
-camera.lookAt(0, 1.28, 0);
+// 少し引いて全身が画面に収まるように(近すぎてはみ出していた)。
+camera.position.set(0, 1.0, 2.7);
+camera.lookAt(0, 0.95, 0);
 scene.add(new THREE.AmbientLight(0xffffff, 1.5));
 const dir = new THREE.DirectionalLight(0xffffff, 1.3);
 dir.position.set(1, 2, 2);
@@ -81,11 +82,11 @@ function relaxArms(vrm) {
     const n = h.getNormalizedBoneNode(name);
     if (n) { n.rotation.x = x; n.rotation.z = z; }
   };
-  // 腕を体側へ。左右で z の符号が逆。腕が上がる場合は符号を反転する。
-  set(VRMHumanBoneName.LeftUpperArm, 0.05, -1.15);
-  set(VRMHumanBoneName.RightUpperArm, 0.05, 1.15);
-  set(VRMHumanBoneName.LeftLowerArm, 0.0, -0.18);
-  set(VRMHumanBoneName.RightLowerArm, 0.0, 0.18);
+  // 腕を体側へ下ろす。左右で z の符号が逆。このモデルでは左+ / 右- で下がる。
+  set(VRMHumanBoneName.LeftUpperArm, 0.05, 1.1);
+  set(VRMHumanBoneName.RightUpperArm, 0.05, -1.1);
+  set(VRMHumanBoneName.LeftLowerArm, 0.0, 0.15);
+  set(VRMHumanBoneName.RightLowerArm, 0.0, -0.15);
 }
 
 // ---- 口パク用の解析(再生音声の振幅) ----
