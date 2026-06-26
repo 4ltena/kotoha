@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 
 from kotoha.llm import persona
 from kotoha.memory import composer
@@ -25,6 +26,7 @@ class MemoryManager:
         compress_fn=compress_turns,
         promote_fn=promote,
         spawn=None,
+        clock=None,
     ):
         self.store = store
         self.config = config
@@ -36,6 +38,7 @@ class MemoryManager:
         self._compress_fn = compress_fn
         self._promote_fn = promote_fn
         self._spawn = spawn or self._default_spawn
+        self._clock = clock or datetime.now   # 現在時刻取得(テストで差し替え可能)
         self.W = config.memory_keep_recent_turns
         self.N = config.memory_compress_interval
         self.M = config.memory_promote_threshold
@@ -56,6 +59,7 @@ class MemoryManager:
             long_term=self.store.long_term,
             short_term=self.store.short_term,
             raw_window=self.store.raw_window,
+            time_context=composer.format_time_context(self._clock()),
         )
 
     def on_turn_end(self, assistant_text: str) -> None:

@@ -12,10 +12,10 @@ class AllModelsFailed(Exception):
 def build_promote_prompt(long_term: str, entries: list[str]) -> str:
     bullets = "\n".join("- " + e for e in entries)
     return (
-        "あなたはキャラクター「ことは」の長期記憶を編集する。"
+        "あなたはキャラクター「つくよみ」の長期記憶を編集する。"
         "既存の長期記憶と新しい短期メモを統合し、重複を消し、"
         "重要なユーザー像・好み・価値観・関係性に絞って簡潔な日本語にまとめ直す。"
-        "ことはの核（名前・口調）は変更しない。"
+        "つくよみの核（名前・口調）は変更しない。"
         "ただしユーザーに合わせて性格のニュアンスはごく少しずつ寄せてよい。"
         "長期記憶の本文だけを返す。\n\n"
         f"# 既存の長期記憶\n{long_term or '(空)'}\n\n"

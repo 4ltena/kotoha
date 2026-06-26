@@ -13,7 +13,7 @@ _SYSTEM = (
 def _format_turns(turns: list[dict]) -> str:
     lines = []
     for t in turns:
-        who = "ユーザー" if t.get("role") == "user" else "ことは"
+        who = "ユーザー" if t.get("role") == "user" else "つくよみ"
         lines.append(f"{who}: {t.get('content', '')}")
     return "\n".join(lines)
 

@@ -17,5 +17,5 @@ def test_build_messages_does_not_mutate_input():
 
 def test_immutable_prompt_is_system_prompt_alias():
     assert persona.IMMUTABLE_PROMPT == persona.SYSTEM_PROMPT
-    assert "ことは" in persona.IMMUTABLE_PROMPT
+    assert "つくよみ" in persona.IMMUTABLE_PROMPT
     assert "わたし" in persona.IMMUTABLE_PROMPT

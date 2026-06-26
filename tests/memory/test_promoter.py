@@ -6,7 +6,7 @@ def test_build_promote_prompt_contains_inputs():
     p = build_promote_prompt("既存ユーザー像", ["新事実A", "新事実B"])
     assert "既存ユーザー像" in p
     assert "新事実A" in p and "新事実B" in p
-    assert "ことは" in p   # 核を変えない旨の指示
+    assert "つくよみ" in p   # 核を変えない旨の指示
 
 
 async def test_promote_uses_first_model_on_success():
