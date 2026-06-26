@@ -1,0 +1,100 @@
+"""リモート音声サーバ。HTTPS/WSS(既定 5108)でブラウザ端末と音声を双方向にやり取りする。
+
+- GET /        ブラウザ用クライアントページ
+- GET /ws      音声 WebSocket
+    client -> server  : バイナリ = Int16 mono 16kHz の PCM フレーム(マイク)
+    server -> client  : バイナリ = 合成 WAV、テキスト(JSON) = 制御(例 {"type":"stop"})
+
+接続中の1台を能動クライアントとして扱う。受信 PCM は on_audio で orchestrator へ流し、
+合成音声は RemotePlayer 経由で送る。getUserMedia のため自己署名 HTTPS で待ち受ける。
+"""
+
+import logging
+import os
+import ssl
+
+import numpy as np
+from aiohttp import web
+
+from kotoha.remote.cert import ensure_self_signed_cert
+from kotoha.remote.player import RemotePlayer
+
+logger = logging.getLogger(__name__)
+
+_STATIC = os.path.join(os.path.dirname(__file__), "static")
+
+
+class RemoteAudioServer:
+    def __init__(self, *, config, loop, user_id: int = 0):
+        self.config = config
+        self._loop = loop
+        self._user_id = user_id
+        self._ws = None            # 能動クライアント
+        self._on_audio = None
+        self.player = RemotePlayer(
+            loop=loop, send_audio=self._send_audio, send_control=self._send_control
+        )
+        self._runner = None
+
+    def set_on_audio(self, on_audio) -> None:
+        self._on_audio = on_audio
+
+    # ---- 送信(RemotePlayer から) ----
+    async def _send_audio(self, wav: bytes) -> None:
+        ws = self._ws
+        if ws is not None and not ws.closed:
+            await ws.send_bytes(wav)
+
+    async def _send_control(self, msg: dict) -> None:
+        ws = self._ws
+        if ws is not None and not ws.closed:
+            await ws.send_json(msg)
+
+    # ---- 受信 ----
+    def _feed(self, data: bytes) -> None:
+        if not self._on_audio or not data:
+            return
+        pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+        self._on_audio(self._user_id, pcm)
+
+    async def _ws_handler(self, request):
+        ws = web.WebSocketResponse(max_msg_size=0)   # 無制限(音声バイナリ)
+        await ws.prepare(request)
+        self._ws = ws
+        logger.info("remote client connected: %s", request.remote)
+        try:
+            async for msg in ws:
+                if msg.type == web.WSMsgType.BINARY:
+                    self._feed(msg.data)
+                # TEXT(client 制御)は将来用。今は無視。
+        finally:
+            if self._ws is ws:
+                self._ws = None
+            logger.info("remote client disconnected")
+        return ws
+
+    async def _index(self, request):
+        return web.FileResponse(os.path.join(_STATIC, "index.html"))
+
+    async def start(self) -> None:
+        cert_path, key_path = ensure_self_signed_cert(self.config.remote_audio_cert_dir)
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(cert_path, key_path)
+        app = web.Application()
+        app.router.add_get("/", self._index)
+        app.router.add_get("/ws", self._ws_handler)
+        self._runner = web.AppRunner(app)
+        await self._runner.setup()
+        site = web.TCPSite(
+            self._runner,
+            self.config.remote_audio_host,
+            self.config.remote_audio_port,
+            ssl_context=ssl_ctx,
+        )
+        await site.start()
+
+    async def stop(self) -> None:
+        if self._ws is not None and not self._ws.closed:
+            await self._ws.close()
+        if self._runner is not None:
+            await self._runner.cleanup()

@@ -62,3 +62,11 @@ def test_relationship_defaults():
     assert c.relationship_init_respect == 90
     assert c.relationship_init_mood == 40
     assert c.relationship_r18_threshold == 80
+
+
+def test_remote_audio_defaults():
+    c = Config()
+    assert c.remote_audio_enabled is False
+    assert c.remote_audio_host == "0.0.0.0"
+    assert c.remote_audio_port == 5108
+    assert c.remote_audio_cert_dir == "data/certs"

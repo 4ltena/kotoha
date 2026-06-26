@@ -265,6 +265,18 @@ async def run_local(config: Config) -> None:
                 f"[relationship] enabled (affection={rstore.affection}, "
                 f"mood={rstore.mood}, r18={'on' if relationship.r18_unlocked() else 'off'})"
             )
+        # リモート音声モードでは別端末のブラウザのマイク/スピーカーを使う。
+        # その場合 player は RemotePlayer を使い、ローカルの mic/speaker は使わない。
+        remote_server = None
+        player = None
+        if config.remote_audio_enabled:
+            from kotoha.remote.server import RemoteAudioServer
+
+            remote_server = RemoteAudioServer(
+                config=config, loop=loop, user_id=config.local_user_id
+            )
+            player = remote_server.player
+
         orch = build_orchestrator(
             config,
             session=session,
@@ -273,23 +285,37 @@ async def run_local(config: Config) -> None:
             on_amplitude=on_amplitude,
             memory=memory,
             relationship=relationship,
+            player=player,
         )
         # ウォームアップ: 各ステージの初回コールドコスト(モデルのVRAMロード/カーネル初期化)を
         # 会話開始前に消化し、最初の応答の遅延を無くす。いずれも失敗しても致命ではない。
         await _warm_up(orch, config, loop)
 
-        mic = MicCapture(
-            make_on_audio(orch),
-            user_id=config.local_user_id,
-            device=config.input_device,
-        )
-        mic.start()
-        _print_audio_devices(config)
-        print("Mic capture started. Speak now. Ctrl+C to quit.")
+        mic = None
+        if remote_server is not None:
+            remote_server.set_on_audio(make_on_audio(orch))
+            await remote_server.start()
+            print(
+                f"[remote] HTTPS/WSS on https://{config.remote_audio_host}:"
+                f"{config.remote_audio_port}/  別端末のブラウザで PC の LAN IP を開く"
+                "(自己署名証明書の警告は許可)。Ctrl+C で終了。"
+            )
+        else:
+            mic = MicCapture(
+                make_on_audio(orch),
+                user_id=config.local_user_id,
+                device=config.input_device,
+            )
+            mic.start()
+            _print_audio_devices(config)
+            print("Mic capture started. Speak now. Ctrl+C to quit.")
         try:
             await asyncio.Event().wait()   # KeyboardInterrupt まで常駐
         finally:
-            mic.stop()
+            if mic is not None:
+                mic.stop()
+            if remote_server is not None:
+                await remote_server.stop()
             if memory is not None:
                 await memory.aclose()
             if relationship is not None:

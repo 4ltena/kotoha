@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>kotoha remote</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; display: grid;
+         place-items: center; height: 100vh; background: #111; color: #eee; }
+  #panel { text-align: center; }
+  button { font-size: 1.2rem; padding: 0.8rem 1.6rem; border-radius: 0.6rem;
+           border: none; cursor: pointer; }
+  #status { margin-top: 1rem; opacity: 0.8; }
+  #level { width: 200px; height: 8px; background: #333; border-radius: 4px;
+           margin: 1rem auto 0; overflow: hidden; }
+  #bar { height: 100%; width: 0; background: #4caf50; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <button id="connect">接続して話す</button>
+  <div id="status">未接続</div>
+  <div id="level"><div id="bar"></div></div>
+</div>
+<script>
+const statusEl = document.getElementById("status");
+const barEl = document.getElementById("bar");
+const btn = document.getElementById("connect");
+
+// 16kHz へリサンプルして Int16 を送る AudioWorklet。
+const WORKLET = `
+class DS extends AudioWorkletProcessor {
+  constructor() { super(); this.ratio = sampleRate / 16000; this.buf = []; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) this.buf.push(ch[i]);
+    const out = [];
+    while (this.pos < this.buf.length - 1) {
+      const i0 = Math.floor(this.pos), frac = this.pos - i0;
+      out.push(this.buf[i0] * (1 - frac) + this.buf[i0 + 1] * frac);
+      this.pos += this.ratio;
+    }
+    const consumed = Math.floor(this.pos);
+    if (consumed > 0) { this.buf = this.buf.slice(consumed); this.pos -= consumed; }
+    if (out.length) {
+      const i16 = new Int16Array(out.length);
+      for (let i = 0; i < out.length; i++) {
+        let v = Math.max(-1, Math.min(1, out[i]));
+        i16[i] = v < 0 ? v * 32768 : v * 32767;
+      }
+      this.port.postMessage(i16.buffer, [i16.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor("ds", DS);
+`;
+
+let ws, inCtx, outCtx, nextTime = 0;
+const sources = new Set();
+
+function playWav(arrbuf) {
+  outCtx.decodeAudioData(arrbuf.slice(0)).then((audioBuf) => {
+    const src = outCtx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(outCtx.destination);
+    const t = Math.max(outCtx.currentTime, nextTime);
+    src.start(t);
+    nextTime = t + audioBuf.duration;
+    sources.add(src);
+    src.onended = () => sources.delete(src);
+  }).catch(() => {});
+}
+
+function stopAll() {
+  for (const s of sources) { try { s.stop(); } catch (e) {} }
+  sources.clear();
+  nextTime = 0;
+}
+
+async function connect() {
+  btn.disabled = true;
+  statusEl.textContent = "マイク許可を確認中…";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true,
+               noiseSuppression: true, autoGainControl: true },
+    });
+    inCtx = new AudioContext();
+    outCtx = new AudioContext();
+    await outCtx.resume();
+    const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+    await inCtx.audioWorklet.addModule(url);
+
+    ws = new WebSocket("wss://" + location.host + "/ws");
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { statusEl.textContent = "接続中。話しかけてください"; };
+    ws.onclose = () => { statusEl.textContent = "切断"; btn.disabled = false; };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === "string") {
+        try { if (JSON.parse(ev.data).type === "stop") stopAll(); } catch (e) {}
+      } else {
+        playWav(ev.data);
+      }
+    };
+
+    const node = new AudioWorkletNode(inCtx, "ds");
+    inCtx.createMediaStreamSource(stream).connect(node);
+    node.port.onmessage = (e) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
+      // 簡易レベル表示
+      const v = new Int16Array(e.data);
+      let peak = 0;
+      for (let i = 0; i < v.length; i++) peak = Math.max(peak, Math.abs(v[i]));
+      barEl.style.width = Math.min(100, (peak / 32768) * 300) + "%";
+    };
+  } catch (err) {
+    statusEl.textContent = "失敗: " + err;
+    btn.disabled = false;
+  }
+}
+
+btn.addEventListener("click", connect);
+</script>
+</body>
+</html>
