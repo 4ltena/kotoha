@@ -1,0 +1,7 @@
+{
+  "vrmUrl": "../assets/sample.vrm",
+  "wsUrl": "ws://127.0.0.1:8770/ws",
+  "width": 400,
+  "height": 600,
+  "fps": 30
+}
