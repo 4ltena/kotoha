@@ -14,7 +14,7 @@ async def check_services(session, *, ollama_url: str, tts_http_url: str) -> dict
             async with session.get(url) as r:
                 results[name] = r.status == 200
         except Exception:
-            logger.warning("%s への疎通に失敗: %s", name, url)
+            logger.warning("failed to reach %s: %s", name, url)
             results[name] = False
     return results
 

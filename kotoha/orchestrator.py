@@ -97,6 +97,7 @@ class Orchestrator:
     def _save_partial(self) -> None:
         # 中断時点までの bot 発話を履歴へ。冪等(buf を毎回クリア)。
         if self._assistant_buf.strip():
+            logger.info("response: %s", self._assistant_buf.strip())
             self.history.append(
                 {"role": "assistant", "content": self._assistant_buf.strip()}
             )
@@ -131,11 +132,13 @@ class Orchestrator:
                 timeout=self._stt_timeout,
             )
         except Exception:
-            logger.exception("STT failed (user=%s) -> 沈黙扱いでスキップ", user_id)
+            logger.exception("STT failed (user=%s); skipping as silence", user_id)
             return
         text = (text or "").strip()
         if not text:
+            logger.info("STT: empty result; skipping")
             return
+        logger.info("recognized: %s", text)
         self.history.append({"role": "user", "content": text})
         self._events.state("thinking")
         messages = self.persona.build_messages(list(self.history))
@@ -164,7 +167,7 @@ class Orchestrator:
             raise
         except Exception:
             # LLM/TTS/API/再生失敗 -> ログ + フォールバック発話(点3)
-            logger.exception("ターン処理に失敗 -> フォールバック発話")
+            logger.exception("turn failed; speaking fallback")
             for t in tasks:
                 t.cancel()
             await self._speak_fallback()
@@ -192,6 +195,7 @@ class Orchestrator:
             if sentence is _SENTINEL:
                 await self._play_q.put(_SENTINEL)
                 return
+            logger.info("synthesize: %s", sentence)
             wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
             await self._play_q.put(wav)
 
@@ -220,7 +224,7 @@ class Orchestrator:
                 self.player.play_and_wait(wav), timeout=self._play_timeout
             )
         except Exception:
-            logger.exception("フォールバック発話にも失敗")
+            logger.exception("fallback speech also failed")
 
     # ---- VAD ストリーム生成(ユーザー別・用途別に独立した silero を持つ) ----
     def _get_segmenter(self, user_id: int) -> VadSegmenter:
@@ -310,6 +314,7 @@ class Orchestrator:
                         audio = np.concatenate([pre, audio])   # 割り込み冒頭を欠落させない
                     for utterance in seg.push(audio):
                         self._last_speaker = user_id
+                        logger.info("speech detected (%.2fs)", len(utterance) / self.sample_rate)
                         self._loop.call_soon_threadsafe(
                             self._spawn_turn, user_id, utterance
                         )

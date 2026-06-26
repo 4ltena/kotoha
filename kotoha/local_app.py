@@ -82,8 +82,33 @@ def build_orchestrator(
     )
 
 
+def _print_audio_devices(config) -> None:
+    """選択されている入出力デバイスを表示する(デバッグ用)。"""
+    try:
+        import sounddevice as sd
+
+        devs = sd.query_devices()
+        default_in, default_out = sd.default.device
+        in_idx = config.input_device if config.input_device is not None else default_in
+        out_idx = config.output_device if config.output_device is not None else default_out
+
+        def _name(idx):
+            try:
+                return devs[int(idx)]["name"]
+            except Exception:
+                return str(idx)
+
+        print(f"[audio] input (mic): {_name(in_idx)} (index={in_idx})")
+        print(f"[audio] output (speaker): {_name(out_idx)} (index={out_idx})")
+    except Exception as e:
+        print(f"[audio] failed to query devices: {e}")
+
+
 async def run_local(config: Config) -> None:
     """ローカル(マイク+スピーカ)で会話ループを常駐させる。integration 専用。"""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S"
+    )
     loop = asyncio.get_running_loop()
     timeout = aiohttp.ClientTimeout(total=None, sock_read=300)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -95,7 +120,7 @@ async def run_local(config: Config) -> None:
         for name, ok in status.items():
             print(f"[health] {name}: {'OK' if ok else 'DOWN'}")
         if not all(status.values()):
-            raise RuntimeError(f"必要なサービスに接続できません: {status}")
+            raise RuntimeError(f"required services unreachable: {status}")
 
         bridge = None
         events = NullEvents()
@@ -109,11 +134,11 @@ async def run_local(config: Config) -> None:
                 events = bridge
                 on_amplitude = bridge.mouth
                 print(
-                    f"[overlay] WS サーバ起動: "
+                    f"[overlay] WS server: "
                     f"ws://{config.overlay_ws_host}:{config.overlay_ws_port}/ws"
                 )
             except Exception:
-                logger.exception("overlay bridge の起動に失敗 -> オーバーレイ無効で続行")
+                logger.exception("overlay bridge failed to start; continuing without overlay")
                 bridge = None   # events は NullEvents()、on_amplitude は None のまま
 
         orch = build_orchestrator(
@@ -129,7 +154,8 @@ async def run_local(config: Config) -> None:
             device=config.input_device,
         )
         mic.start()
-        print("マイク入力を開始しました。Ctrl+C で終了します。")
+        _print_audio_devices(config)
+        print("Mic capture started. Speak now. Ctrl+C to quit.")
         try:
             await asyncio.Event().wait()   # KeyboardInterrupt まで常駐
         finally:
@@ -142,7 +168,7 @@ def main() -> None:
     try:
         asyncio.run(run_local(Config()))
     except KeyboardInterrupt:
-        print("\n終了します。")
+        print("\nStopped.")
 
 
 if __name__ == "__main__":

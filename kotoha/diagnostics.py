@@ -88,10 +88,10 @@ async def run_diagnostics(config: Config) -> int:
     try:
         print(list_audio_devices())
     except Exception as e:
-        print(f"取得不可: {e}([local] extra=sounddevice 未導入の可能性)")
+        print(f"unavailable: {e} ([local] extra / sounddevice may be missing)")
 
     ok = result["ollama"] and result["gptsovits"] and result["model_present"]
-    print("\n=> 準備OK" if ok else "\n=> 未充足の項目があります(上記を確認してください)")
+    print("\n=> ready" if ok else "\n=> some items are not satisfied (see above)")
     return 0 if ok else 1
 
 
