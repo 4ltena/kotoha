@@ -142,13 +142,15 @@ The local MVP pipeline has every module in place. To make sound, set a GPT-SoVIT
 | Entry and health | `local_app.py`, `health.py` | done |
 | Diagnostics | `diagnostics.py` | done |
 | Overlay link, SP2 | `overlay_bridge.py`, `events.py` | done, Python side |
+| Overlay rendering, SP1 | `overlay/`, Electron and three-vrm | done |
 
-Unit tests pass 84 cases right now. The overlay's rendering side, SP1 with Electron and three-vrm, is next. Discord support comes after the MVP runs end to end.
+Python unit tests pass 84 cases. The overlay rendering foundation, SP1, is implemented, and desktop interaction, SP3, is in progress. Discord support comes after the MVP runs end to end.
 
 ## Layout
 
 ```
 kotoha/   the implementation: voice and llm, plus orchestrator, local_app, health, diagnostics, overlay_bridge, events, config
+overlay/  desktop overlay: Electron and three-vrm
 tests/    unit and integration tests
 docs/
   specs/  design docs
