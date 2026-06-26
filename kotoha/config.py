@@ -43,3 +43,11 @@ class Config:
     overlay_enabled: bool = False
     overlay_ws_host: str = "127.0.0.1"
     overlay_ws_port: int = 8770
+    # --- 記憶レイヤー (docs/superpowers/specs/2026-06-26-memory-layers-design.md) ---
+    memory_enabled: bool = True
+    memory_path: str = "data/memory.json"
+    memory_compress_model: str = "qwen3.5:4b"
+    memory_compress_interval: int = 30      # N: 何ターンごとに圧縮するか
+    memory_keep_recent_turns: int = 10      # W: コンテキストに残す直近ターン数
+    memory_promote_threshold: int = 40      # M: 短期エントリ何件で昇格するか
+    memory_gemini_model_priority: tuple = ("flash-lite", "flash", "gemma")

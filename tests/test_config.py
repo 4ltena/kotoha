@@ -25,3 +25,15 @@ def test_config_error_handling_defaults():
     assert c.stt_timeout_s == 30.0
     assert c.tts_timeout_s == 15.0
     assert c.play_timeout_s == 60.0
+
+
+def test_memory_defaults():
+    from kotoha.config import Config
+    c = Config()
+    assert c.memory_enabled is True
+    assert c.memory_path == "data/memory.json"
+    assert c.memory_compress_model == "qwen3.5:4b"
+    assert c.memory_compress_interval == 30
+    assert c.memory_keep_recent_turns == 10
+    assert c.memory_promote_threshold == 40
+    assert c.memory_gemini_model_priority == ("flash-lite", "flash", "gemma")
