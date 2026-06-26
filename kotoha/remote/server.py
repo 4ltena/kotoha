@@ -113,14 +113,19 @@ class RemoteAudioServer:
 
     async def _cert(self, request):
         # 端末に信頼登録するための公開証明書(秘密鍵は配らない)。
-        # iOS/Android が証明書として認識できるよう MIME を明示する(誤ると invalid profile)。
+        # iOS は CA 証明書を DER(バイナリ)で受け取らないと invalid profile になるため、
+        # PEM を DER へ変換して application/x-x509-ca-cert で返す。
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+
         with open(self._cert_path, "rb") as f:
-            data = f.read()
+            pem = f.read()
+        der = x509.load_pem_x509_certificate(pem).public_bytes(serialization.Encoding.DER)
         return web.Response(
-            body=data,
+            body=der,
             headers={
                 "Content-Type": "application/x-x509-ca-cert",
-                "Content-Disposition": 'attachment; filename="kotoha-remote.crt"',
+                "Content-Disposition": 'attachment; filename="kotoha-remote.cer"',
             },
         )
 
