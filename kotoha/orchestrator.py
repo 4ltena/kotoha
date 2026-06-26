@@ -11,6 +11,7 @@ import numpy as np
 from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 from kotoha.llm import persona as _persona
 from kotoha.llm.sentence_splitter import SentenceSplitter
+from kotoha.llm.think_filter import ThinkFilter
 from kotoha.events import NullEvents
 # Task 12 で feed_audio から使用
 from kotoha.voice.vad import VadSegmenter, BargeInDetector
@@ -191,21 +192,31 @@ class Orchestrator:
 
     async def _llm_to_sentences(self, messages, splitter) -> None:
         # LLM 消費は TTS/再生を待たずに進む(キューへ流すだけ)。
+        # reasoning モデルの <think>...</think> は除去し、TTS/履歴へ流さない。
         _t0 = getattr(self, "_turn_t0", time.perf_counter())
         _first_token = True
         _first_sentence = True
-        async for piece in self.llm_stream(messages, model=self.model):
-            if _first_token:
-                logger.info("[latency] LLM first token: %.2fs", time.perf_counter() - _t0)
-                _first_token = False
-            self._assistant_buf += piece
-            for sentence in splitter.push(piece):
+        think = ThinkFilter()
+
+        async def _emit(clean: str) -> None:
+            nonlocal _first_sentence
+            if not clean:
+                return
+            self._assistant_buf += clean
+            for sentence in splitter.push(clean):
                 if _first_sentence:
                     logger.info(
                         "[latency] LLM first sentence: %.2fs", time.perf_counter() - _t0
                     )
                     _first_sentence = False
                 await self._sentence_q.put(sentence)
+
+        async for piece in self.llm_stream(messages, model=self.model):
+            if _first_token:
+                logger.info("[latency] LLM first token: %.2fs", time.perf_counter() - _t0)
+                _first_token = False
+            await _emit(think.push(piece))
+        await _emit(think.flush())
         tail = splitter.flush()
         if tail:
             await self._sentence_q.put(tail)
