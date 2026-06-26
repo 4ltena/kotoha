@@ -22,9 +22,19 @@ dir.position.set(1, 2, 2);
 scene.add(dir);
 
 let vrm = null;
+let placeholder = null;
 loadVRM(scene, "../assets/sample.vrm")
   .then((v) => { vrm = v; })
-  .catch((err) => console.error(err.message));
+  .catch((err) => {
+    // 仮 VRM 未配置でも起動を目視確認できるよう、簡易プレースホルダを表示する
+    console.error(err.message);
+    placeholder = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.4, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x66ccff })
+    );
+    placeholder.position.set(0, 1.2, 0);
+    scene.add(placeholder);
+  });
 
 const cfg = mergeConfig({}); // SP1: defaults; config.json wiring can come later
 let currentState = "idle";
@@ -49,6 +59,7 @@ function animate() {
     vrm.expressionManager.setValue("aa", open);
   }
   if (vrm) vrm.update(dt);
+  if (placeholder) placeholder.rotation.y += dt;
   renderer.render(scene, camera);
 }
 animate();

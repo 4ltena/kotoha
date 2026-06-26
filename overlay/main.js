@@ -27,7 +27,9 @@ function createWindow() {
   });
   win.setAlwaysOnTop(true, "screen-saver");
   win.setIgnoreMouseEvents(true, { forward: true }); // click-through (SP1 default)
-  if (process.env.OVERLAY_DEV === "1") {
+  // dev は --dev フラグ(シェル非依存)で切替。OVERLAY_DEV=1 も後方互換で受ける。
+  const isDev = process.argv.includes("--dev") || process.env.OVERLAY_DEV === "1";
+  if (isDev) {
     win.loadURL(DEV_URL);
   } else {
     win.loadFile(path.join(__dirname, "dist", "index.html"));

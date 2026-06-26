@@ -62,9 +62,10 @@
   "main": "main.js",
   "scripts": {
     "dev": "vite",
+    "dev:app": "electron . --dev",
     "build": "vite build",
     "start": "electron .",
-    "test": "vitest run"
+    "test": "vitest run --config vitest.config.js"
   },
   "devDependencies": {
     "electron": "^30.0.0",
@@ -143,7 +144,9 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  if (process.env.OVERLAY_DEV === "1") {
+  // dev は --dev フラグ(シェル非依存)で切替。OVERLAY_DEV=1 も後方互換で受ける。
+  const isDev = process.argv.includes("--dev") || process.env.OVERLAY_DEV === "1";
+  if (isDev) {
     win.loadURL(DEV_URL);
   } else {
     win.loadFile(path.join(__dirname, "dist", "index.html"));
@@ -173,7 +176,7 @@ app.on("window-all-closed", () => {
 Run:
 ```bash
 cd overlay && npm install
-# Dev: in one shell `npm run dev`; in another `OVERLAY_DEV=1 npm start`
+# Dev: in one shell `npm run dev`; in another `npm run dev:app`
 ```
 Expected: an Electron window opens showing a blank page; console logs "kotoha overlay renderer booting". (No transparency yet — that's Task 2.)
 
@@ -228,7 +231,7 @@ Replace the `const win = new BrowserWindow({...})` block with:
 
 - [ ] **Step 3: Smoke-run**
 
-Run: `npm run dev` + `OVERLAY_DEV=1 npm start`
+Run: `npm run dev` + `npm run dev:app`
 Expected: a frameless transparent window in the bottom-right; clicks pass through to whatever is behind it; it stays above other windows; no taskbar entry.
 
 - [ ] **Step 4: Commit**
@@ -295,7 +298,7 @@ window.addEventListener("resize", () => {
 });
 ```
 
-- [ ] **Step 2: Smoke-run** — `npm run dev` + `OVERLAY_DEV=1 npm start`. Expected: a rotating cube floats on the transparent desktop.
+- [ ] **Step 2: Smoke-run** — `npm run dev` + `npm run dev:app`. Expected: a rotating cube floats on the transparent desktop.
 
 - [ ] **Step 3: Commit**
 
@@ -754,7 +757,7 @@ installMockInjector({
 });
 ```
 
-- [ ] **Step 3: Smoke-run** — `npm run dev` + `OVERLAY_DEV=1 npm start`. Press `4`: the mouth oscillates (speaking); press `1`: mouth closes (idle). Verifies the full state/mouth → VRM path without Python.
+- [ ] **Step 3: Smoke-run** — `npm run dev` + `npm run dev:app`. Press `4`: the mouth oscillates (speaking); press `1`: mouth closes (idle). Verifies the full state/mouth → VRM path without Python.
 
 - [ ] **Step 4: Commit**
 
@@ -770,7 +773,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Completion check (SP1 smoke)
 
 - [ ] `cd overlay && npx vitest run` — all pure-logic unit tests pass (config, mappings, ws-client).
-- [ ] `npm run dev` + `OVERLAY_DEV=1 npm start` — a transparent, frameless, always-on-top, click-through window shows the sample VRM idling (blink + sway); the keyboard mock injector drives state/mouth (mouth moves on `4`/speaking).
+- [ ] `npm run dev` + `npm run dev:app` — a transparent, frameless, always-on-top, click-through window shows the sample VRM idling (blink + sway); the keyboard mock injector drives state/mouth (mouth moves on `4`/speaking).
 - [ ] With SP2 running (`Config(overlay_enabled=True)` + `python -m kotoha.local_app`), the overlay reflects real `state`/`mouth` over `ws://127.0.0.1:8770/ws`.
 
 ## Acceptance (spec §10, SP1)
