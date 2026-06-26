@@ -12,12 +12,12 @@
     "test": "vitest run --config vitest.config.js"
   },
   "devDependencies": {
-    "electron": "^30.0.0",
+    "electron": "^30.5.1",
     "vite": "^5.0.0",
     "vitest": "^1.0.0"
   },
   "dependencies": {
-    "three": "^0.160.0",
-    "@pixiv/three-vrm": "^3.0.0"
+    "@pixiv/three-vrm": "^3.0.0",
+    "three": "^0.160.0"
   }
 }
