@@ -1,11 +1,21 @@
+**日本語** | [English](README.en.md)
+
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Windows-blue?logo=windows&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+
 # Kotoha 🎙️ — 言葉
 
 **自分の声で、止まらずに喋れるローカル音声AI。**
+*A local voice AI that talks back in a clone of your own voice — without breaking the flow.*
+
+(version 0.1.0)
 
 マイクに話しかけると、ローカルの LLM が考えて、**あなたの声をクローンした声**で返事をします。
 すべてローカル PC で完結（クラウド送信なし）。相手が喋っている途中で割り込んでも、ちゃんと止まって聞き直します（**barge-in**）。
 
-> 将来的には Discord VC 対応＋裏で「調べ物・コーディング・アプリ操作」を非同期実行する構想。まずは**ローカルだけで対話できる MVP** を作っています。詳細設計は [`docs/specs/2026-06-24-realtime-voice-bot-design.md`](docs/specs/2026-06-24-realtime-voice-bot-design.md) を参照。
+> 将来的には Discord VC 対応＋裏で「調べ物・コーディング・アプリ操作」を非同期実行する構想。さらにデスクトップに VRM キャラを重ねる構想（desktopmate 的オーバーレイ）も進行中。まずは**ローカルだけで対話できる MVP** を作っています。詳細設計は [`docs/specs/2026-06-24-realtime-voice-bot-design.md`](docs/specs/2026-06-24-realtime-voice-bot-design.md) を参照。
 
 ---
 
@@ -146,20 +156,20 @@ pytest -m integration
 | **Orchestrator** | `orchestrator.py` | ✅ 完成（中核） |
 | 起動口 / 疎通 | `local_app.py` / `health.py` | ✅ 完成 |
 | 環境診断 | `diagnostics.py` | ✅ 完成 |
+| オーバーレイ連携(SP2) | `overlay_bridge.py` / `events.py` | ✅ 完成（Python 側） |
 
-ユニットテストは現在 **69 passed**（`-m "not integration"`）。Discord 対応（受信/再生/bot 配線）は MVP 完動後に着手予定。
+ユニットテストは現在 **84 passed**（`-m "not integration"`）。デスクトップ・オーバーレイ（VRM キャラ）の描画側 **SP1（Electron + three-vrm）** は今後着手。Discord 対応（受信/再生/bot 配線）は MVP 完動後に着手予定。
 
 ---
 
 ## 📁 ディレクトリ
 
 ```
-kotoha/        実装本体（voice/ llm/ + orchestrator/local_app/health/config）
-tests/          ユニット + integration テスト
+kotoha/        実装本体（voice/ llm/ + orchestrator/local_app/health/diagnostics/overlay_bridge/events/config）
+tests/         ユニット + integration テスト
 docs/
-  specs/        設計書（詳細設計）
-  plans/        実装計画（タスク分解 / TDD 手順）
-  HANDOFF.md    引き継ぎメモ（ローカル専用 / git管理外）
+  specs/       設計書（詳細設計）
+  plans/       実装計画（タスク分解 / TDD 手順）
 ```
 
 ---
