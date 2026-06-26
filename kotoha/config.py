@@ -12,6 +12,7 @@ FRAME_MS = 20                   # 1 パケット = 20ms
 class Config:
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3.5:4b"
+    llm_num_predict: int = 120          # 応答の生成トークン上限(独白・冗長の抑制。1〜2文向け)
     tts_http_url: str = "http://localhost:50021"
     tts_http_speaker: int = 1
     whisper_model: str = "large-v3-turbo"
@@ -60,6 +61,7 @@ class Config:
     relationship_init_respect: int = 90
     relationship_init_mood: int = 40
     relationship_r18_threshold: int = 80         # affection がこれ以上で成人向け表現を許容
+    relationship_r18_prompt_path: str = "data/r18_prompt.txt"   # 解禁時に読む非公開プロンプト(git 管理外。無ければ何も足さない)
     relationship_analyze_enabled: bool = True    # 毎ターン背景でLLM分析するか。False で値は固定のまま注入のみ(VRAM/速度優先)
     # --- リモート音声 (別端末のブラウザのマイク/スピーカーを使う) ---
     remote_audio_enabled: bool = False           # True で 5108 のリモートI/Oを使い、ローカルmic/spkは使わない

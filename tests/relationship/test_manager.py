@@ -6,7 +6,8 @@ from kotoha.relationship.store import RelationshipStore
 from kotoha.relationship.manager import RelationshipManager
 
 
-def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40, analyze=True):
+def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40, analyze=True,
+         r18_path=None):
     spawned = []
 
     def spawn(coro):
@@ -17,6 +18,7 @@ def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40, analyze=Tru
     cfg = Config(
         relationship_path=str(tmp_path / "r.json"),
         relationship_analyze_enabled=analyze,
+        relationship_r18_prompt_path=(r18_path or ""),   # 既定の実ファイルを読まないよう明示
     )
     mgr = RelationshipManager(
         store=store, config=cfg, session=None,
@@ -50,14 +52,24 @@ async def test_persona_context_and_r18_gate(tmp_path):
     async def af(*a, **k):
         return {}
 
-    high, _ = _mgr(tmp_path, analyze_fn=af, affection=90)
+    r18 = tmp_path / "r18.txt"
+    r18.write_text("解禁テキスト", encoding="utf-8")
+
+    high, _ = _mgr(tmp_path, analyze_fn=af, affection=90, r18_path=str(r18))
     ctx = high.persona_context()
     assert "親密度=90" in ctx
-    assert high.r18_unlocked() and "大人びた" in ctx
+    assert high.r18_unlocked()
+    assert "解禁テキスト" in ctx                       # 解禁時はファイル内容を注入
 
-    low, _ = _mgr(tmp_path, analyze_fn=af, affection=50)
+    low, _ = _mgr(tmp_path, analyze_fn=af, affection=50, r18_path=str(r18))
     assert not low.r18_unlocked()
-    assert "大人びた" not in low.persona_context()
+    assert "解禁テキスト" not in low.persona_context()
+
+    # ファイルが無ければ解禁でも何も足さない(公開既定で安全)
+    nofile, _ = _mgr(
+        tmp_path, analyze_fn=af, affection=90, r18_path=str(tmp_path / "none.txt")
+    )
+    assert "解禁テキスト" not in nofile.persona_context()
 
 
 async def test_day_change_relaxes_mood(tmp_path):

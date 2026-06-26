@@ -22,10 +22,14 @@ async def stream_chat(
     base_url: str = "http://localhost:11434",
     session: aiohttp.ClientSession | None = None,
     think: bool = False,
+    num_predict: int | None = None,
 ) -> AsyncIterator[str]:
     """増分トークン文字列を yield。タスク cancel で接続が閉じ生成停止。
-    session を渡せば長命の共有接続を使う(渡さなければ都度生成・破棄)。"""
+    session を渡せば長命の共有接続を使う(渡さなければ都度生成・破棄)。
+    num_predict を渡すと生成トークン数を上限で打ち切る(独白・冗長応答の抑制)。"""
     payload = {"model": model, "messages": messages, "stream": True, "think": think}
+    if num_predict is not None:
+        payload["options"] = {"num_predict": num_predict}
     timeout = aiohttp.ClientTimeout(total=None, sock_read=300)
     own = session is None
     sess = session or aiohttp.ClientSession(timeout=timeout)

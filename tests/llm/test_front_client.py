@@ -84,3 +84,15 @@ async def test_stream_chat_sends_think_false_and_streams():
     assert payload["stream"] is True
     assert payload["think"] is False
     assert payload["messages"] == [{"role": "user", "content": "x"}]
+    assert "options" not in payload   # num_predict 未指定なら options を付けない
+
+
+async def test_stream_chat_includes_num_predict_option():
+    lines = [b'{"message":{"content":""},"done":true}']
+    sess = _FakeSession(lines)
+    async for _ in stream_chat(
+        [{"role": "user", "content": "x"}], model="m", session=sess, num_predict=64
+    ):
+        pass
+    _, payload = sess.posts[0]
+    assert payload["options"]["num_predict"] == 64

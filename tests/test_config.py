@@ -17,6 +17,7 @@ def test_config_defaults():
     assert c.vad_silence_ms == 400
     assert c.bargein_trigger_ms == 250
     assert c.language == "ja"
+    assert c.llm_num_predict == 120
 
 
 def test_stt_hallucination_defaults():
@@ -70,6 +71,7 @@ def test_relationship_defaults():
     assert c.relationship_init_mood == 40
     assert c.relationship_r18_threshold == 80
     assert c.relationship_analyze_enabled is True
+    assert c.relationship_r18_prompt_path == "data/r18_prompt.txt"
 
 
 def test_remote_audio_defaults():

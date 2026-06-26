@@ -77,6 +77,7 @@ def build_orchestrator(
         stream_chat,
         base_url=config.ollama_url,
         session=session,
+        num_predict=config.llm_num_predict,
     )
     # 外部API検索(天気等)。weather プロバイダが OPENWEATHER_API_KEY を環境変数から読む。
     api_search = functools.partial(_api_search, session=session, config=config)

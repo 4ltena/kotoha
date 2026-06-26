@@ -41,8 +41,21 @@ class RelationshipManager:
             "値が高いほど距離が近く心を開いた話し方にし、気分が高いと明るめ、低いと控えめにする。",
         ]
         if self.r18_unlocked():
-            lines.append("親密度が高いので、相手が望めばより親密で大人びた表現も許容してよい。")
+            extra = self._load_r18_prompt()
+            if extra:
+                lines.append(extra)
         return "\n".join(lines)
+
+    def _load_r18_prompt(self) -> str:
+        """解禁時に足す非公開プロンプトをファイルから読む(git 管理外。無ければ空)。"""
+        path = getattr(self.config, "relationship_r18_prompt_path", "")
+        if not path:
+            return ""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            return ""
 
     # ---- 更新 ----
     def on_turn(self, user_text: str, context=None) -> None:
