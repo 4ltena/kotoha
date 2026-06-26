@@ -37,3 +37,4 @@ def test_memory_defaults():
     assert c.memory_keep_recent_turns == 10
     assert c.memory_promote_threshold == 40
     assert c.memory_gemini_model_priority == ("flash-lite", "flash", "gemma")
+    assert c.memory_short_term_max == 60

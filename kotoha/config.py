@@ -51,3 +51,4 @@ class Config:
     memory_keep_recent_turns: int = 10      # W: コンテキストに残す直近ターン数
     memory_promote_threshold: int = 40      # M: 短期エントリ何件で昇格するか
     memory_gemini_model_priority: tuple = ("flash-lite", "flash", "gemma")
+    memory_short_term_max: int = 60      # 短期エントリ保持上限(昇格無効時の無制限増加を防ぐ)

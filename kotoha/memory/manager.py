@@ -39,6 +39,7 @@ class MemoryManager:
         self.W = config.memory_keep_recent_turns
         self.N = config.memory_compress_interval
         self.M = config.memory_promote_threshold
+        self._short_term_max = config.memory_short_term_max
         self._compress_lock = asyncio.Lock()
         self._promote_lock = asyncio.Lock()
         self._bg: set = set()
@@ -90,6 +91,8 @@ class MemoryManager:
                 return   # pending を捨てない
             del self.store.pending_raw[:len(batch)]
             self.store.short_term.extend(entries)
+            if len(self.store.short_term) > self._short_term_max:
+                del self.store.short_term[: len(self.store.short_term) - self._short_term_max]
             self.store.turns_since_compress = 0
             self.store.save()
             if len(self.store.short_term) >= self.M:
