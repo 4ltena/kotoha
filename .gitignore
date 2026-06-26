@@ -7,3 +7,5 @@ build/
 .pytest_cache/
 HANDOFF.md
 CLAUDE.md
+docs/superpowers/
+.superpowers/
