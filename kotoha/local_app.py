@@ -15,6 +15,7 @@ from kotoha.events import NullEvents
 from kotoha.overlay_bridge import OverlayBridge
 from kotoha.llm.front_client import stream_chat
 from kotoha.orchestrator import Orchestrator, make_on_audio
+from kotoha.tools.registry import api_search as _api_search
 from kotoha.voice.mic import MicCapture
 from kotoha.voice.speaker import LocalSpeaker
 from kotoha.voice.stt import Transcriber, build_whisper
@@ -70,6 +71,8 @@ def build_orchestrator(
         base_url=config.ollama_url,
         session=session,
     )
+    # 外部API検索(天気等)。weather プロバイダが OPENWEATHER_API_KEY を環境変数から読む。
+    api_search = functools.partial(_api_search, session=session, config=config)
 
     # フェーズ1 bot.py と同一の明示 kwargs 配線。Orchestrator の署名は変更しない。
     return Orchestrator(
@@ -90,6 +93,7 @@ def build_orchestrator(
         loop=loop,
         events=events,
         memory=memory,
+        api_search=api_search,
     )
 
 

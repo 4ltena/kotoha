@@ -36,6 +36,10 @@ class Config:
     gptsovits_speed_factor: float = 1.0
     # TTS 読み置換: (表記, 読み) の組。合成前に適用し固有名詞の読み・区切りを安定させる。
     tts_readings: tuple = (("つくよみ", "ツクヨミ"),)
+    # --- API検索 (OpenWeather。キーは環境変数 OPENWEATHER_API_KEY) ---
+    openweather_default_city: str = "Tokyo"
+    openweather_units: str = "metric"
+    openweather_lang: str = "ja"
     # --- ローカル音声 I/O (sounddevice) ---
     local_user_id: int = 0
     input_device: Optional[int | str] = None   # None=既定デバイス

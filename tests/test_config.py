@@ -42,3 +42,10 @@ def test_memory_defaults():
 
 def test_tts_readings_default():
     assert Config().tts_readings == (("つくよみ", "ツクヨミ"),)
+
+
+def test_openweather_defaults():
+    c = Config()
+    assert c.openweather_default_city == "Tokyo"
+    assert c.openweather_units == "metric"
+    assert c.openweather_lang == "ja"

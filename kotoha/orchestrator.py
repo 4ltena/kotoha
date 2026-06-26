@@ -67,6 +67,7 @@ class Orchestrator:
         loop=None,
         events=NullEvents(),
         memory=None,
+        api_search=None,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -91,6 +92,7 @@ class Orchestrator:
         self._assistant_buf = ""
         self._events = events
         self.memory = memory
+        self.api_search = api_search   # async (text) -> str|None。外部API検索(任意)
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -162,6 +164,16 @@ class Orchestrator:
         else:
             self.history.append({"role": "user", "content": text})
             messages = self.persona.build_messages(list(self.history))
+        # 外部API検索(天気等)。ヒットすればこのターン限定の文脈として注入。
+        if self.api_search is not None:
+            try:
+                ctx = await self.api_search(text)
+            except Exception:
+                logger.exception("API search failed")
+                ctx = None
+            if ctx:
+                logger.info("API search: %s", ctx)
+                messages.insert(-1, {"role": "system", "content": "【APIで取得した情報】\n" + ctx})
         self._events.state("thinking")
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:

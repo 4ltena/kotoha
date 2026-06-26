@@ -240,3 +240,34 @@ async def test_stage_direction_parenthetical_not_spoken():
     )
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     assert player.played == [("WAV:" + "はい。").encode()]
+
+
+def _make_capturing_llm(tokens, sink):
+    async def _llm(messages, *, model):
+        sink.append([dict(m) for m in messages])
+        for t in tokens:
+            yield t
+    return _llm
+
+
+async def test_api_search_context_injected_before_user():
+    captured = []
+
+    async def fake_search(text):
+        return "東京の現在の天気: 晴れ、22℃。"
+
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("天気は？"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        api_search=fake_search,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    msgs = captured[0]
+    assert msgs[-1]["role"] == "user"                       # 末尾はユーザー発話
+    assert msgs[-2]["content"].startswith("【APIで取得した情報】")  # 直前に API 文脈
+    assert "東京の現在の天気" in msgs[-2]["content"]
