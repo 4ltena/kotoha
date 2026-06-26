@@ -12,7 +12,7 @@ from kotoha.llm.front_client import stream_chat
 from kotoha.orchestrator import Orchestrator, make_on_audio
 from kotoha.voice.mic import MicCapture
 from kotoha.voice.speaker import LocalSpeaker
-from kotoha.voice.stt import build_whisper
+from kotoha.voice.stt import Transcriber, build_whisper
 from kotoha.voice.tts_gptsovits import synthesize
 from kotoha.voice.vad import SileroVad
 
@@ -35,11 +35,14 @@ def build_orchestrator(
     transcriber / player を注入しなければ、それぞれ実装(whisper / LocalSpeaker)を生成する。
     """
     if transcriber is None:
-        transcriber = build_whisper(
+        # build_whisper は生の WhisperModel を返す。.transcribe が文字列を返すよう
+        # Transcriber で包む(生 model の .transcribe は (segments, info) タプル)。
+        model = build_whisper(
             config.whisper_model,
             device=config.whisper_device,
             compute_type=config.whisper_compute_type,
         )
+        transcriber = Transcriber(model)
     if player is None:
         player = LocalSpeaker(loop=loop, on_amplitude=on_amplitude)
 
@@ -148,6 +151,20 @@ async def run_local(config: Config) -> None:
             events=events,
             on_amplitude=on_amplitude,
         )
+        # TTS ウォームアップ: 初回合成が払うモデル/参照キャッシュ確立コスト(数秒)を
+        # 会話開始前に消化し、最初の応答の遅延を無くす。合成結果は再生せず捨てる。
+        try:
+            import time
+
+            t0 = time.perf_counter()
+            print("Warming up TTS...")
+            await asyncio.wait_for(
+                orch.tts("ウォームアップ。"), timeout=config.tts_timeout_s
+            )
+            print(f"TTS warm-up done ({time.perf_counter() - t0:.2f}s)")
+        except Exception:
+            logger.warning("TTS warm-up failed; continuing")
+
         mic = MicCapture(
             make_on_audio(orch),
             user_id=config.local_user_id,
