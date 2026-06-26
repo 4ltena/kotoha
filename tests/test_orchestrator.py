@@ -224,3 +224,19 @@ async def test_memory_path_calls_add_user_and_on_turn_end():
     assert mem.users == ["やあ"]
     assert mem.ended == ["はいです。"]
     assert len(orch.history) == 0   # memory 経路では deque を使わない
+
+
+async def test_stage_direction_parenthetical_not_spoken():
+    # ト書きの括弧書きだけの文(（02:15 ごろ）)は TTS へ流さない。
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["（02:15 ごろ）", "\n", "はい", "。"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == [("WAV:" + "はい。").encode()]

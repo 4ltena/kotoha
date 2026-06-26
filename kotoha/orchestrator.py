@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import threading
 import time
 from collections import deque
@@ -19,6 +20,13 @@ from kotoha.voice.vad import VadSegmenter, BargeInDetector
 logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
+
+# ト書き/状況説明の括弧書きだけの文(例:「（02:15 ごろ）」)。声に出さず TTS へ流さない。
+_STAGE_DIRECTION_RE = re.compile(r"^\s*[（(][^（）()]*[）)]\s*$")
+
+
+def _is_stage_direction(text: str) -> bool:
+    return bool(_STAGE_DIRECTION_RE.match(text))
 
 
 def make_on_audio(orch):
@@ -229,6 +237,9 @@ class Orchestrator:
             if sentence is _SENTINEL:
                 await self._play_q.put(_SENTINEL)
                 return
+            if _is_stage_direction(sentence):
+                logger.info("skip stage direction: %s", sentence)
+                continue
             logger.info("synthesize: %s", sentence)
             _t_tts = time.perf_counter()
             wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
