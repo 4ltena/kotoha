@@ -51,7 +51,12 @@ def build_orchestrator(
             device=config.whisper_device,
             compute_type=config.whisper_compute_type,
         )
-        transcriber = Transcriber(model)
+        transcriber = Transcriber(
+            model,
+            no_speech_threshold=config.whisper_no_speech_threshold,
+            log_prob_threshold=config.whisper_log_prob_threshold,
+            hallucination_blocklist=config.stt_hallucination_blocklist,
+        )
     if player is None:
         player = LocalSpeaker(loop=loop, on_amplitude=on_amplitude)
 

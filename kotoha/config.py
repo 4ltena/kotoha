@@ -18,6 +18,16 @@ class Config:
     whisper_device: str = "cuda"
     whisper_compute_type: str = "float16"
     language: str = "ja"
+    # STT 幻聴対策: 無音らしいセグメント破棄の閾値と、既知の幻聴フレーズのブロックリスト。
+    whisper_no_speech_threshold: float = 0.6
+    whisper_log_prob_threshold: float = -1.0
+    stt_hallucination_blocklist: tuple = (
+        "ご視聴ありがとうございました",
+        "ご清聴ありがとうございました",
+        "最後までご視聴いただきありがとうございました",
+        "チャンネル登録をお願いします",
+        "次の動画でお会いしましょう",
+    )
     vad_threshold: float = 0.5
     vad_silence_ms: int = 400        # 無音 ~400ms で発話区切り
     bargein_trigger_ms: int = 250    # ~250ms 継続発話で barge-in

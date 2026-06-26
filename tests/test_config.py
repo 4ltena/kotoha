@@ -19,6 +19,13 @@ def test_config_defaults():
     assert c.language == "ja"
 
 
+def test_stt_hallucination_defaults():
+    c = Config()
+    assert c.whisper_no_speech_threshold == 0.6
+    assert c.whisper_log_prob_threshold == -1.0
+    assert "ご視聴ありがとうございました" in c.stt_hallucination_blocklist
+
+
 def test_config_error_handling_defaults():
     c = Config()
     assert c.fallback_text.strip() != ""
