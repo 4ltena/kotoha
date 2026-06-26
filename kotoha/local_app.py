@@ -122,6 +122,20 @@ def _print_audio_devices(config) -> None:
         print(f"[audio] failed to query devices: {e}")
 
 
+def _lan_ip() -> str:
+    """この PC の LAN IP を推定する(外部へ送信はしない)。失敗時は 127.0.0.1。"""
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
 async def _warm_up(orch, config, loop) -> None:
     """各ステージ(TTS/LLM/STT/VAD)の初回コールドコストを会話開始前に消化する。
 
@@ -298,7 +312,7 @@ async def run_local(config: Config) -> None:
             await remote_server.start()
             print(
                 f"[remote] 別端末のブラウザで開く: "
-                f"https://<PCのLAN IP>:{config.remote_audio_port}/?t={remote_server.token}"
+                f"https://{_lan_ip()}:{config.remote_audio_port}/?t={remote_server.token}"
             )
             print("  自己署名証明書の警告は許可してください。Ctrl+C で終了。")
         else:
