@@ -1,7 +1,7 @@
 **日本語** | [English](README.en.md)
 
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 
@@ -184,4 +184,4 @@ Python 3.11+ / asyncio · sounddevice · Silero VAD · faster-whisper · Ollama(
 
 ## 📄 ライセンス
 
-[MIT License](LICENSE) © 2026 4ltena
+[Apache License 2.0](LICENSE) © 2026 4ltena
