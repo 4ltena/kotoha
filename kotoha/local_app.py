@@ -114,6 +114,13 @@ def _print_audio_devices(config) -> None:
 
 async def run_local(config: Config) -> None:
     """ローカル(マイク+スピーカ)で会話ループを常駐させる。integration 専用。"""
+    # .env からの環境変数読込(任意)。GEMINI_API_KEY 等をリポジトリ外に置くため。
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S"
     )

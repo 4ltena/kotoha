@@ -13,3 +13,6 @@ run_dev.py
 
 # ローカル記憶(会話内容・公開しない)
 /data/
+
+# 環境変数(APIキー等の秘密情報。.env.example のみ公開)
+.env
