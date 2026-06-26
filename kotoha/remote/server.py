@@ -113,7 +113,16 @@ class RemoteAudioServer:
 
     async def _cert(self, request):
         # 端末に信頼登録するための公開証明書(秘密鍵は配らない)。
-        return web.FileResponse(self._cert_path)
+        # iOS/Android が証明書として認識できるよう MIME を明示する(誤ると invalid profile)。
+        with open(self._cert_path, "rb") as f:
+            data = f.read()
+        return web.Response(
+            body=data,
+            headers={
+                "Content-Type": "application/x-x509-ca-cert",
+                "Content-Disposition": 'attachment; filename="kotoha-remote.crt"',
+            },
+        )
 
     async def start(self) -> None:
         cert_path, key_path = ensure_self_signed_cert(
