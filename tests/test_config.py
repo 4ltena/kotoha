@@ -49,3 +49,16 @@ def test_openweather_defaults():
     assert c.openweather_default_city == "Tokyo"
     assert c.openweather_units == "metric"
     assert c.openweather_lang == "ja"
+
+
+def test_relationship_defaults():
+    c = Config()
+    assert c.relationship_enabled is True
+    assert c.relationship_path == "data/relationship.json"
+    assert c.relationship_model == "qwen3.5:4b"
+    assert c.relationship_init_affection == 90
+    assert c.relationship_init_friendship == 90
+    assert c.relationship_init_trust == 90
+    assert c.relationship_init_respect == 90
+    assert c.relationship_init_mood == 40
+    assert c.relationship_r18_threshold == 80

@@ -40,6 +40,16 @@ class Config:
     openweather_default_city: str = "Tokyo"
     openweather_units: str = "metric"
     openweather_lang: str = "ja"
+    # --- 関係性パラメータ (kotoha/relationship/) ---
+    relationship_enabled: bool = True
+    relationship_path: str = "data/relationship.json"
+    relationship_model: str = "qwen3.5:4b"      # 分析用ローカルLLM(背景)
+    relationship_init_affection: int = 90
+    relationship_init_friendship: int = 90
+    relationship_init_trust: int = 90
+    relationship_init_respect: int = 90
+    relationship_init_mood: int = 40
+    relationship_r18_threshold: int = 80         # affection がこれ以上で成人向け表現を許容
     # --- ローカル音声 I/O (sounddevice) ---
     local_user_id: int = 0
     input_device: Optional[int | str] = None   # None=既定デバイス

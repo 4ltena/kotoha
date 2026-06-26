@@ -16,6 +16,7 @@ from kotoha.overlay_bridge import OverlayBridge
 from kotoha.llm.front_client import stream_chat
 from kotoha.orchestrator import Orchestrator, make_on_audio
 from kotoha.tools.registry import api_search as _api_search
+from kotoha.relationship import RelationshipStore, RelationshipManager
 from kotoha.voice.mic import MicCapture
 from kotoha.voice.speaker import LocalSpeaker
 from kotoha.voice.stt import Transcriber, build_whisper
@@ -36,6 +37,7 @@ def build_orchestrator(
     events=NullEvents(),
     on_amplitude=None,
     memory=None,
+    relationship=None,
 ):
     """設定と長命セッションから Orchestrator を結線する(単体テスト可能)。
 
@@ -94,6 +96,7 @@ def build_orchestrator(
         events=events,
         memory=memory,
         api_search=api_search,
+        relationship=relationship,
     )
 
 
@@ -242,6 +245,26 @@ async def run_local(config: Config) -> None:
                 api_key=api_key,
             )
             print(f"[memory] enabled (store={config.memory_path})")
+
+        relationship = None
+        if config.relationship_enabled:
+            rstore = RelationshipStore.load(
+                config.relationship_path,
+                defaults={
+                    "affection": config.relationship_init_affection,
+                    "friendship": config.relationship_init_friendship,
+                    "trust": config.relationship_init_trust,
+                    "respect": config.relationship_init_respect,
+                    "mood": config.relationship_init_mood,
+                },
+            )
+            relationship = RelationshipManager(
+                store=rstore, config=config, session=session, loop=loop
+            )
+            print(
+                f"[relationship] enabled (affection={rstore.affection}, "
+                f"mood={rstore.mood}, r18={'on' if relationship.r18_unlocked() else 'off'})"
+            )
         orch = build_orchestrator(
             config,
             session=session,
@@ -249,6 +272,7 @@ async def run_local(config: Config) -> None:
             events=events,
             on_amplitude=on_amplitude,
             memory=memory,
+            relationship=relationship,
         )
         # ウォームアップ: 各ステージの初回コールドコスト(モデルのVRAMロード/カーネル初期化)を
         # 会話開始前に消化し、最初の応答の遅延を無くす。いずれも失敗しても致命ではない。
@@ -268,6 +292,8 @@ async def run_local(config: Config) -> None:
             mic.stop()
             if memory is not None:
                 await memory.aclose()
+            if relationship is not None:
+                await relationship.aclose()
             if bridge is not None:
                 await bridge.stop()
 

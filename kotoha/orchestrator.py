@@ -70,6 +70,7 @@ class Orchestrator:
         events=NullEvents(),
         memory=None,
         api_search=None,
+        relationship=None,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -95,6 +96,7 @@ class Orchestrator:
         self._events = events
         self.memory = memory
         self.api_search = api_search   # async (text) -> str|None。外部API検索(任意)
+        self.relationship = relationship   # 関係値マネージャ(任意)
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -167,6 +169,7 @@ class Orchestrator:
             self.history.append({"role": "user", "content": text})
             messages = self.persona.build_messages(list(self.history))
         # 外部API検索(天気等)。ヒットすればこのターン限定の文脈として注入。
+        ctx = None
         if self.api_search is not None:
             try:
                 ctx = await self.api_search(text)
@@ -176,6 +179,10 @@ class Orchestrator:
             if ctx:
                 logger.info("API search: %s", ctx)
                 messages.insert(-1, {"role": "system", "content": "【APIで取得した情報】\n" + ctx})
+        # 関係性: 現在値を system へ注入し、背景で値更新を起動(主応答は止めない)。
+        if self.relationship is not None:
+            messages.insert(-1, {"role": "system", "content": self.relationship.persona_context()})
+            self.relationship.on_turn(text, context=ctx)
         self._events.state("thinking")
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:
