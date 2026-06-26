@@ -14,9 +14,9 @@ def _time_band(hour: int) -> str:
         return "昼"
     if 17 <= hour < 19:
         return "夕方"
-    if 19 <= hour < 23:
+    if 19 <= hour < 24:
         return "夜"
-    return "深夜"
+    return "深夜"   # 0:00-4:59
 
 
 def format_time_context(now) -> str:

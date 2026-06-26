@@ -32,12 +32,19 @@ def test_empty_long_and_short_blocks_omitted():
 
 
 def test_format_time_context_bands():
-    assert "朝" in format_time_context(datetime(2026, 6, 27, 7, 30))
-    assert "昼" in format_time_context(datetime(2026, 6, 27, 13, 0))
-    assert "夕方" in format_time_context(datetime(2026, 6, 27, 18, 0))
-    assert "夜" in format_time_context(datetime(2026, 6, 27, 21, 0))
-    assert "深夜" in format_time_context(datetime(2026, 6, 27, 2, 0))
-    s = format_time_context(datetime(2026, 6, 27, 21, 5))
+    # 括弧付きラベルで照合し、「夜」と「深夜」を取り違えないようにする。
+    def band(h, m=0):
+        return format_time_context(datetime(2026, 6, 27, h, m))
+
+    assert "「深夜」" in band(0)
+    assert "「深夜」" in band(4, 59)
+    assert "「朝」" in band(5)        # 境界: 朝の開始
+    assert "「朝」" in band(10, 59)
+    assert "「昼」" in band(11)       # 境界: 昼の開始
+    assert "「夕方」" in band(17)     # 境界: 夕方の開始
+    assert "「夜」" in band(19)       # 境界: 夜の開始
+    assert "「夜」" in band(23)       # 23時は夜(深夜ではない)
+    s = band(21, 5)
     assert "2026-06-27" in s and "21:05" in s
 
 
