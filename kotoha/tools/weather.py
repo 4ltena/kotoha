@@ -93,7 +93,9 @@ async def weather_search(
         return None
     if not is_weather_query(text):
         return None
-    city = extract_city(text, config.openweather_default_city)
+    # 既定地点は .env(OPENWEATHER_CITY)を優先し、無ければ config の既定。
+    default_city = os.environ.get("OPENWEATHER_CITY") or config.openweather_default_city
+    city = extract_city(text, default_city)
     try:
         data = await fetch(
             city,
