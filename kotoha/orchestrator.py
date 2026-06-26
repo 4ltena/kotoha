@@ -31,20 +31,20 @@ def _is_stage_direction(text: str) -> bool:
     return bool(_STAGE_DIRECTION_RE.match(text))
 
 
-# TTS へ送る前に取り除く引用符類。
+# 発話可能か判定する際に無視する引用符類(合成テキストからは除去しない)。
 _TTS_STRIP = "「」『』\"'“”‘’"
 
 
-def _to_speakable(text: str) -> str:
-    """引用符を除き、発話可能な文字(かな/漢字/英数)が無ければ空を返す。
+def _has_speech(text: str) -> bool:
+    """発話可能な文字(かな/漢字/英数)を含むか。引用符・記号・句読点のみなら False。
 
-    記号・句読点・引用符だけの断片を GPT-SoVITS に送ると 400 になるため、その手前で弾く。
+    記号・引用符だけの断片を GPT-SoVITS に送ると 400 になるため、その手前で弾く判定に使う。
+    合成テキスト自体は加工しない(引用符を消すと読み上げが不自然になるため)。
     """
     s = text
     for c in _TTS_STRIP:
         s = s.replace(c, "")
-    s = s.strip()
-    return s if re.search(r"\w", s) else ""
+    return bool(re.search(r"\w", s))
 
 
 def make_on_audio(orch):
@@ -87,6 +87,7 @@ class Orchestrator:
         memory=None,
         api_search=None,
         relationship=None,
+        max_sentences_per_turn: int = 0,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -113,6 +114,7 @@ class Orchestrator:
         self.memory = memory
         self.api_search = api_search   # async (text) -> str|None。外部API検索(任意)
         self.relationship = relationship   # 関係値マネージャ(任意)
+        self._max_sentences = max_sentences_per_turn   # >0 で1ターンの文数を上限(独白防止。プロンプトより優先)
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -249,10 +251,14 @@ class Orchestrator:
         _first_sentence = True
         think = ThinkFilter()
 
-        async def _emit(clean: str) -> None:
-            nonlocal _first_sentence
+        count = 0
+        cap = self._max_sentences
+
+        async def _emit(clean: str) -> bool:
+            """clean を文へ分割しキューへ。文数上限に達したら True を返す。"""
+            nonlocal _first_sentence, count
             if not clean:
-                return
+                return False
             self._assistant_buf += clean
             for sentence in splitter.push(clean):
                 if _first_sentence:
@@ -261,16 +267,31 @@ class Orchestrator:
                     )
                     _first_sentence = False
                 await self._sentence_q.put(sentence)
+                count += 1
+                if cap and count >= cap:
+                    return True   # 文数上限(独白防止。プロンプトより優先)
+            return False
 
-        async for piece in self.llm_stream(messages, model=self.model):
-            if _first_token:
-                logger.info("[latency] LLM first token: %.2fs", time.perf_counter() - _t0)
-                _first_token = False
-            await _emit(think.push(piece))
-        await _emit(think.flush())
-        tail = splitter.flush()
-        if tail:
-            await self._sentence_q.put(tail)
+        stopped = False
+        agen = self.llm_stream(messages, model=self.model)
+        try:
+            async for piece in agen:
+                if _first_token:
+                    logger.info(
+                        "[latency] LLM first token: %.2fs", time.perf_counter() - _t0
+                    )
+                    _first_token = False
+                if await _emit(think.push(piece)):
+                    stopped = True
+                    break
+        finally:
+            await agen.aclose()   # 上限到達時は LLM 生成を即停止
+        if not stopped:
+            stopped = await _emit(think.flush())
+        if not stopped:
+            tail = splitter.flush()
+            if tail:
+                await self._sentence_q.put(tail)
         await self._sentence_q.put(_SENTINEL)
 
     async def _sentences_to_audio(self) -> None:
@@ -284,17 +305,20 @@ class Orchestrator:
                 logger.info("skip stage direction: %s", sentence)
                 continue
             sentence = humanize_dates(sentence, date.today())   # ISO日付を会話表現へ
-            spoken = _to_speakable(sentence)
-            if not spoken:
+            if not _has_speech(sentence):
                 logger.info("skip non-speech: %s", sentence)   # 記号・引用符のみは TTS へ送らない
                 continue
-            logger.info("synthesize: %s", spoken)
+            logger.info("synthesize: %s", sentence)
             _t_tts = time.perf_counter()
-            wav = await asyncio.wait_for(self.tts(spoken), timeout=self._tts_timeout)
+            try:
+                wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
+            except Exception:
+                logger.warning("TTS failed for sentence: %r", sentence)   # 原因文字列を記録
+                raise
             logger.info(
                 "[latency] TTS synth: %.2fs (%d chars)",
                 time.perf_counter() - _t_tts,
-                len(spoken),
+                len(sentence),
             )
             await self._play_q.put(wav)
 

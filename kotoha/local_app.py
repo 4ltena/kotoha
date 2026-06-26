@@ -103,6 +103,7 @@ def build_orchestrator(
         memory=memory,
         api_search=api_search,
         relationship=relationship,
+        max_sentences_per_turn=config.max_sentences_per_turn,
     )
 
 

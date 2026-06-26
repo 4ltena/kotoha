@@ -13,6 +13,7 @@ class Config:
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3.5:4b"
     llm_num_predict: int = 120          # 応答の生成トークン上限(独白・冗長の抑制。1〜2文向け)
+    max_sentences_per_turn: int = 3     # 1ターンで読み上げる文数の上限(独白防止。プロンプトより優先)
     tts_http_url: str = "http://localhost:50021"
     tts_http_speaker: int = 1
     whisper_model: str = "large-v3-turbo"

@@ -18,6 +18,7 @@ def test_config_defaults():
     assert c.bargein_trigger_ms == 250
     assert c.language == "ja"
     assert c.llm_num_predict == 120
+    assert c.max_sentences_per_turn == 3
 
 
 def test_stt_hallucination_defaults():
