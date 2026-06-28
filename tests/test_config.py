@@ -100,7 +100,7 @@ def test_screen_perception_defaults():
     assert c.screen_game_process_names == ()
     assert c.screen_game_poll_s == 2.0
     assert c.vlm_perception_url == ""
-    assert c.vlm_perception_model == "qwen3-vl:4b"
+    assert c.vlm_perception_model == "qwen3.5:4b"
     assert c.vlm_perception_api == "openai"
     assert c.vlm_perception_timeout_s == 20.0
     assert "画面" in c.vlm_perception_prompt

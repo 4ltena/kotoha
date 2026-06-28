@@ -103,7 +103,9 @@ class Config:
     screen_game_process_names: tuple = ()          # 補正用のプロセス名リスト
     screen_game_poll_s: float = 2.0                # ゲーム検出のポーリング間隔
     vlm_perception_url: str = ""                   # 知覚VLM のURL。空なら ollama_url
-    vlm_perception_model: str = "qwen3-vl:4b"
+    # 既定は会話と同じ qwen3.5:4b(vision対応)。単一GPUでは同一モデルを使い回し、
+    # 追加VRAM・モデルスワップを避ける。VII 等の専用VLMを別バックエンドで使うときは上書きする。
+    vlm_perception_model: str = "qwen3.5:4b"
     vlm_perception_api: str = "openai"             # "openai" | "ollama"
     vlm_perception_timeout_s: float = 20.0
     vlm_perception_prompt: str = (
