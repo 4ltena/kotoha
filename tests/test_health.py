@@ -1,7 +1,8 @@
 import aiohttp
 import pytest
 
-from kotoha.health import check_services, check_local_services
+from kotoha.config import Config
+from kotoha.health import check_services, check_local_services, check_aux_endpoints
 
 
 class _Resp:
@@ -109,3 +110,43 @@ async def test_check_local_services_gptsovits_404_is_reachable():
         gptsovits_url="http://localhost:9880",
     )
     assert result == {"ollama": True, "gptsovits": True}
+
+
+async def test_aux_endpoints_empty_when_perception_disabled():
+    cfg = Config(screen_perception_enabled=False, vlm_perception_url="http://vii:1234")
+    assert await check_aux_endpoints(_OkSession(), config=cfg) == {}
+
+
+async def test_aux_endpoints_skip_when_same_as_ollama():
+    # vlm/aux が空(=ollama_url にフォールバック)なら主チェック対象なので省く。
+    cfg = Config(screen_perception_enabled=True, ollama_url="http://localhost:11434")
+    assert await check_aux_endpoints(_OkSession(), config=cfg) == {}
+
+
+async def test_aux_endpoints_probe_distinct_openai_vlm_and_ollama_aux():
+    cfg = Config(
+        screen_perception_enabled=True,
+        ollama_url="http://localhost:11434",
+        vlm_perception_url="http://vii:1234",
+        vlm_perception_api="openai",
+        aux_llm_url="http://vii:1234",
+    )
+    session = _FakeSession([
+        ("/v1/models", _FakeResp(status=200)),   # 知覚VLM(openai)
+        ("/api/tags", _FakeResp(status=200)),    # 補助LLM(ollama)
+    ])
+    result = await check_aux_endpoints(session, config=cfg)
+    assert result == {"vlm": True, "aux": True}
+
+
+async def test_aux_endpoints_marks_down_on_error():
+    err = aiohttp.ClientError()
+    cfg = Config(
+        screen_perception_enabled=True,
+        ollama_url="http://localhost:11434",
+        vlm_perception_url="http://vii:1234",
+        vlm_perception_api="ollama",
+    )
+    session = _FakeSession([("/api/tags", _FakeResp(error=err))])
+    result = await check_aux_endpoints(session, config=cfg)
+    assert result == {"vlm": False}

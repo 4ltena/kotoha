@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import aiohttp
 
 from kotoha.config import Config, build_config
-from kotoha.health import check_local_services
+from kotoha.health import check_local_services, check_aux_endpoints
 from kotoha.memory import MemoryStore, MemoryManager
 from kotoha.memory.discovery import discover_gemini_models
 from kotoha.events import NullEvents
@@ -260,6 +260,14 @@ async def run_local(config: Config) -> None:
             print(f"[health] {name}: {'OK' if ok else 'DOWN'}")
         if not all(status.values()):
             raise RuntimeError(f"required services unreachable: {status}")
+
+        # 画面知覚の別バックエンド(VII 等)を指すときだけ、非致命に疎通確認する。
+        # down でも会話は best-effort で続くため raise しない。
+        aux_status = await check_aux_endpoints(session, config=config)
+        for name, ok in aux_status.items():
+            print(f"[health] {name}: {'OK' if ok else 'DOWN (best-effort, continuing)'}")
+            if not ok:
+                logger.warning("%s endpoint unreachable; perception/background runs degraded", name)
 
         bridge = None
         events = NullEvents()
