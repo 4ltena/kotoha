@@ -91,3 +91,23 @@ class Config:
     memory_promote_threshold: int = 40      # M: 短期エントリ何件で昇格するか
     memory_gemini_model_priority: tuple = ("flash-lite", "flash", "gemma")
     memory_short_term_max: int = 60      # 短期エントリ保持上限(昇格無効時の無制限増加を防ぐ)
+    # --- 画面知覚 (docs/specs/2026-06-28-screen-perception-design.md) ---
+    screen_perception_enabled: bool = False        # 既定OFFのオプトイン
+    screen_capture_backend: str = "mss"            # "mss" | "dxcam"(Windows・ゲーム)
+    screen_capture_max_long_edge: int = 1024       # 送信前の縮小上限(長辺px)
+    screen_normal_interval_s: float = 4.0          # 通常モードのキャプチャ間隔
+    screen_game_mode: str = "powersave"            # "powersave" | "realtime"
+    screen_game_realtime_interval_s: float = 0.5   # リアルタイム型の間隔
+    screen_summary_max_age_s: float = 30.0         # これより古い要約は会話へ注入しない
+    screen_game_detect_fullscreen: bool = True     # 前面窓フルスクリーン検知
+    screen_game_process_names: tuple = ()          # 補正用のプロセス名リスト
+    screen_game_poll_s: float = 2.0                # ゲーム検出のポーリング間隔
+    vlm_perception_url: str = ""                   # 知覚VLM のURL。空なら ollama_url
+    vlm_perception_model: str = "qwen3-vl:4b"
+    vlm_perception_api: str = "openai"             # "openai" | "ollama"
+    vlm_perception_timeout_s: float = 20.0
+    vlm_perception_prompt: str = (
+        "次の画面のスクリーンショットを見て、いま何が映っているかを日本語で1〜2文、"
+        "簡潔に説明して。固有名詞やUIの文字があれば拾う。推測は最小限に。"
+    )
+    aux_llm_url: str = ""                           # 非リアルタイムLLM のURL。空なら ollama_url

@@ -84,3 +84,24 @@ def test_remote_audio_defaults():
     assert c.remote_audio_port == 5108
     assert c.remote_audio_cert_dir == "data/certs"
     assert c.remote_half_duplex is True
+
+
+def test_screen_perception_defaults():
+    from kotoha.config import Config
+    c = Config()
+    assert c.screen_perception_enabled is False
+    assert c.screen_capture_backend == "mss"
+    assert c.screen_capture_max_long_edge == 1024
+    assert c.screen_normal_interval_s == 4.0
+    assert c.screen_game_mode == "powersave"
+    assert c.screen_game_realtime_interval_s == 0.5
+    assert c.screen_summary_max_age_s == 30.0
+    assert c.screen_game_detect_fullscreen is True
+    assert c.screen_game_process_names == ()
+    assert c.screen_game_poll_s == 2.0
+    assert c.vlm_perception_url == ""
+    assert c.vlm_perception_model == "qwen3-vl:4b"
+    assert c.vlm_perception_api == "openai"
+    assert c.vlm_perception_timeout_s == 20.0
+    assert "画面" in c.vlm_perception_prompt
+    assert c.aux_llm_url == ""
