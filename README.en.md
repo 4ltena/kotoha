@@ -26,6 +26,7 @@ The longer-term plan is Discord voice support, with background work like researc
 - Holds the relationship with the user as numbers such as affection and mood, adapting tone and closeness to the conversation.
 - Pulls in outside facts like the weather through API search and folds them into the talk.
 - Knows the current time and date, and gets puzzled by greetings that do not fit the hour.
+- Captures the screen at intervals, summarizes it with a local VLM, and folds it into the talk. Off by default; switches to power-save or real-time when a game starts.
 
 ## How it works
 
@@ -64,6 +65,75 @@ sequenceDiagram
         P->>U: playback
     end
     Note over U,P: An interruption is caught as barge-in, generation and playback stop, and it listens again
+```
+
+## Overall architecture (current stage)
+
+Around that simple one-way loop, the current stage adds swappable input and output, per-turn context injection, and background tasks that never make the reply wait. Input is either the local mic or a browser on another device, and output follows the same choice. In one turn, after transcription, the prompt is stacked in order with memory, API search, the relationship, the current situation, and the screen.
+
+Screen perception, memory compression, relationship analysis, and game-mode watching run in the background. Heavy background inference is routed to auxiliary endpoints (`vlm_perception_url` / `aux_llm_url`), falling back to the local Ollama when unset. During a game's power-save mode, a pause gate stops the background LLMs.
+
+```mermaid
+flowchart TB
+    subgraph IN["Input (either one)"]
+        Mic["Local mic<br/>MicCapture"]
+        Rmt["Browser on another device<br/>RemoteAudioServer"]
+    end
+
+    subgraph TURN["Conversation loop, Orchestrator (one turn)"]
+        direction TB
+        FA["feed_audio<br/>Silero VAD segments speech, detects barge-in"]
+        STT["Transcribe<br/>faster-whisper"]
+        CTX["Context injection<br/>3-layer memory -> API search -> relationship -> situation -> screen"]
+        GEN["3-stage generation<br/>LLM stream -> sentence split -> TTS -> playback"]
+        FA --> STT --> CTX --> GEN
+    end
+
+    subgraph OUT["Output (matches input)"]
+        Spk["Local speaker<br/>LocalSpeaker"]
+        RmtOut["Playback in browser"]
+    end
+
+    subgraph BG["Background tasks (never block the talk)"]
+        SP["ScreenPerceiver<br/>capture screen -> VLM summary"]
+        GM["GameModeLoop<br/>foreground window -> mode"]
+        SC[("ScreenContext<br/>latest screen summary, mode")]
+        MC["Memory compression<br/>lightweight LLM"]
+        RA["Relationship analysis<br/>lightweight LLM"]
+        SP --> SC
+        GM --> SC
+    end
+
+    subgraph EXT["External services and storage (local)"]
+        OLL["Ollama Qwen3.5<br/>chat, perception VLM, aux LLM"]
+        SOV["GPT-SoVITS"]
+        GEM["Gemini<br/>promote to long-term memory (optional)"]
+        WX["OpenWeather (optional)"]
+        DAT[("data/<br/>memory.json, relationship.json")]
+        OV["Overlay VRM"]
+    end
+
+    Mic --> FA
+    Rmt --> FA
+    GEN --> Spk
+    GEN --> RmtOut
+    GEN -. state events .-> OV
+
+    SC -. screen summary .-> CTX
+    SC -. paused by gate .-> MC
+    SC -. paused by gate .-> RA
+    GEN -. end of turn .-> MC
+    CTX -. utterance, situation .-> RA
+
+    GEN --> OLL
+    GEN --> SOV
+    CTX -. weather question .-> WX
+    SP --> OLL
+    MC --> OLL
+    RA --> OLL
+    MC --> GEM
+    MC --> DAT
+    RA --> DAT
 ```
 
 ## Algorithm
@@ -168,13 +238,14 @@ The local MVP pipeline has every module in place. To make sound, set a GPT-SoVIT
 | Three-layer memory | `memory/` | done |
 | Relationship parameters | `relationship/` | done |
 | API search (weather) | `tools/` | done |
+| Screen perception | `screen/`, `llm/vlm_client.py` | done, opt-in (off by default) |
 
-Python unit tests pass 149 cases. The overlay is implemented through rendering (SP1) and desktop interaction (SP3). Discord support remains a later plan.
+Python unit tests pass 210 cases. Screen perception defaults to reusing the same `qwen3.5:4b` (vision-capable) as the chat model on a single GPU (RTX 4080), and this is verified on real hardware. To route it to a separate backend such as a Radeon VII, override `vlm_perception_url` / `aux_llm_url`. The overlay is implemented through rendering (SP1) and desktop interaction (SP3). Discord support remains a later plan.
 
 ## Layout
 
 ```
-kotoha/   the implementation: voice and llm, plus orchestrator, local_app, health, diagnostics, overlay_bridge, events, config
+kotoha/   the implementation: voice, llm, and screen, plus orchestrator, local_app, health, diagnostics, overlay_bridge, events, config
 overlay/  desktop overlay: Electron and three-vrm
 tests/    unit and integration tests
 docs/
