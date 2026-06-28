@@ -4,9 +4,10 @@ import io
 import pytest
 
 PIL = pytest.importorskip("PIL")
+np = pytest.importorskip("numpy")
 from PIL import Image  # noqa: E402
 
-from kotoha.screen.capture import encode_frame  # noqa: E402
+from kotoha.screen.capture import encode_frame, DxcamCapturer  # noqa: E402
 
 
 def test_encode_frame_downscales_and_is_valid_jpeg():
@@ -30,3 +31,19 @@ def test_encode_frame_converts_non_rgb():
     src = Image.new("RGBA", (100, 100), (1, 2, 3, 255))
     out = Image.open(io.BytesIO(base64.b64decode(encode_frame(src))))
     assert out.mode == "RGB"
+
+
+def test_dxcam_reemits_last_frame_when_grab_returns_none():
+    cap = DxcamCapturer(max_long_edge=64)
+    frames = [np.zeros((10, 10, 3), dtype=np.uint8), None, None]
+    cap._grab = lambda: frames.pop(0)
+    first = cap.capture()
+    assert isinstance(first, str) and first        # 実フレーム
+    assert cap.capture() == first                  # grab None -> 直近を再利用
+    assert cap.capture() == first                  # 連続 None でも保つ
+
+
+def test_dxcam_returns_none_before_any_frame():
+    cap = DxcamCapturer()
+    cap._grab = lambda: None
+    assert cap.capture() is None                   # まだ一度も取れていなければ None

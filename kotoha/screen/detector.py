@@ -30,10 +30,24 @@ def resolve_mode(is_game: bool, game_mode: str) -> str:
     return "game_realtime" if game_mode == "realtime" else "game_powersave"
 
 
+def is_borderless_fullscreen(win, mon, *, maximized: bool) -> bool:
+    """前面窓がその窓のあるモニタを覆うか(純関数)。最大化ウィンドウは除外する。
+
+    win/mon は (left, top, right, bottom)。プライマリ解像度ではなく**窓が乗っている
+    モニタ**の矩形と比べることで、サブモニタのボーダレスゲームを取りこぼさない。
+    タスクバー自動非表示の最大化通常窓を誤検出しないよう WS_MAXIMIZE は除く。
+    """
+    if maximized:
+        return False
+    return (win[0] <= mon[0] and win[1] <= mon[1]
+            and win[2] >= mon[2] and win[3] >= mon[3])
+
+
 def get_foreground_info():
     """前面窓の {"fullscreen": bool, "process": str} を返す(Windows)。失敗・非対応は None。
 
-    ctypes で前面窓の矩形をプライマリ解像度と比べ、プロセス名を取得する best-effort。
+    ctypes で前面窓の矩形を、その窓が乗っているモニタの矩形と比べ、プロセス名を取得する
+    best-effort。判定本体は is_borderless_fullscreen(純関数)に委ねる。
     """
     if sys.platform != "win32":
         return None   # 非Windowsでは静かに諦める(毎ポール tracebackを出さない)
@@ -50,10 +64,34 @@ def get_foreground_info():
             return None
         rect = wintypes.RECT()
         user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        sw = user32.GetSystemMetrics(0)   # SM_CXSCREEN
-        sh = user32.GetSystemMetrics(1)   # SM_CYSCREEN
-        fullscreen = (rect.left <= 0 and rect.top <= 0
-                      and rect.right >= sw and rect.bottom >= sh)
+        win = (rect.left, rect.top, rect.right, rect.bottom)
+
+        # 窓が乗っているモニタの矩形を取る(プライマリ限定をやめる)。
+        MONITOR_DEFAULTTONEAREST = 2
+        hmon = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+
+        class _MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+        mi = _MONITORINFO()
+        mi.cbSize = ctypes.sizeof(_MONITORINFO)
+        if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            m = mi.rcMonitor
+            mon = (m.left, m.top, m.right, m.bottom)
+        else:
+            sw = user32.GetSystemMetrics(0)   # SM_CXSCREEN フォールバック
+            sh = user32.GetSystemMetrics(1)
+            mon = (0, 0, sw, sh)
+
+        # 最大化(WS_MAXIMIZE)を除外して、本当のボーダレスフルスクリーンだけ拾う。
+        GWL_STYLE = -16
+        WS_MAXIMIZE = 0x01000000
+        style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+        maximized = bool(style & WS_MAXIMIZE)
+
+        fullscreen = is_borderless_fullscreen(win, mon, maximized=maximized)
+
         pid = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         name = ""

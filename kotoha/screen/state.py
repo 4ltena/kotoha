@@ -22,6 +22,15 @@ class ScreenContext:
             self._summary = (text or "").strip()
             self._ts = self._clock()
 
+    def touch(self) -> None:
+        """既存要約の鮮度だけ更新する(内容は変えない)。要約が無ければ何もしない。
+
+        画面が静止して同じフレームが続くとき、再要約せずに鮮度を保つために使う。
+        """
+        with self._lock:
+            if self._summary:
+                self._ts = self._clock()
+
     def get_summary(self) -> str | None:
         """有効な最新要約。未設定・空・期限切れは None。"""
         with self._lock:

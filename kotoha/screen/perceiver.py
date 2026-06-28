@@ -33,6 +33,7 @@ class ScreenPerceiver:
         self._poll_s = poll_s
         self._sleep = sleep
         self._stop = False
+        self._last_capture_b64 = None   # 直近に要約したフレーム。同一なら再要約しない
         # キャプチャ(mss/dxcam)はブロッキングで、会話ループと同じスレッドで実行すると
         # barge-in・TTS・再生を止める。単一ワーカーへ逃がす。max_workers=1 で
         # スレッド固有のキャプチャ資源(GDI/DXGI)を常に同じスレッドに固定する。
@@ -58,6 +59,10 @@ class ScreenPerceiver:
             return False
         if not image_b64:
             return False
+        if image_b64 == self._last_capture_b64:
+            # 画面が変わっていない: 重い VLM を呼ばず、要約の鮮度だけ更新する。
+            self._screen_ctx.touch()
+            return False
         try:
             summary = await self._describe(image_b64)
         except Exception:
@@ -65,6 +70,7 @@ class ScreenPerceiver:
             return False
         summary = normalize_summary(summary)   # 装飾除去・最大2文へ均す
         if summary:
+            self._last_capture_b64 = image_b64
             self._screen_ctx.set_summary(summary)
             return True
         return False

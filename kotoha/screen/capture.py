@@ -66,21 +66,26 @@ class DxcamCapturer:
     def __init__(self, *, max_long_edge: int = 1024):
         self._max_long_edge = max_long_edge
         self._cam = None
+        self._last_b64 = None   # 直近に成功したフレーム(静止画面で grab が None を返す対策)
 
-    def _ensure(self):
+    def _grab(self):
+        """新フレームを numpy(H×W×3 RGB)で返す。無ければ None。dxcam を遅延 import。"""
+        import dxcam   # 遅延 import (dxcam-cpp も import 名は dxcam)
         if self._cam is None:
-            import dxcam   # 遅延 import (dxcam-cpp も import 名は dxcam)
             self._cam = dxcam.create(output_color="RGB")
+        return self._cam.grab()
 
     def capture(self) -> str | None:
         try:
             from PIL import Image   # 遅延 import
-            self._ensure()
-            frame = self._cam.grab()   # 新フレームが無ければ None
+            frame = self._grab()   # 新フレームが無ければ None
             if frame is None:
-                return None
+                # 画面が静止していると dxcam は None を返す。直近フレームを再利用し、
+                # 周期を保って【画面の様子】が30秒で空にならないようにする。
+                return self._last_b64
             img = Image.fromarray(frame)   # H×W×3 RGB ndarray
-            return encode_frame(img, max_long_edge=self._max_long_edge)
+            self._last_b64 = encode_frame(img, max_long_edge=self._max_long_edge)
+            return self._last_b64
         except Exception:
             logger.warning("dxcam capture failed", exc_info=True)
             return None

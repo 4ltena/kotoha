@@ -24,6 +24,24 @@ def test_empty_summary_is_none():
     assert ctx.get_summary() is None
 
 
+def test_touch_refreshes_freshness_without_changing_content():
+    clk = _Clock()
+    ctx = ScreenContext(summary_max_age_s=10.0, clock=clk)
+    ctx.set_summary("画面にエディタ。")
+    clk.t += 8.0
+    ctx.touch()                # 期限切れ前に鮮度更新
+    clk.t += 8.0               # 元の set からは 16s 経過(>10)だが touch から 8s
+    assert ctx.get_summary() == "画面にエディタ。"   # まだ有効、内容も不変
+    clk.t += 5.0               # touch から 13s で期限切れ
+    assert ctx.get_summary() is None
+
+
+def test_touch_is_noop_without_summary():
+    ctx = ScreenContext(clock=_Clock())
+    ctx.touch()                # 要約が無ければ何もしない
+    assert ctx.get_summary() is None
+
+
 def test_mode_and_background_gate():
     ctx = ScreenContext(clock=_Clock())
     assert ctx.mode == "normal"

@@ -33,6 +33,26 @@ async def test_tick_updates_summary():
     assert ctx.get_summary() == "画面にエディタ。"
 
 
+async def test_identical_frame_skips_describe_but_keeps_fresh():
+    ctx = _ctx()
+    cap = _Capturer(value="SAME")          # 毎回同じフレームを返す(静止画面)
+    describe_calls = {"n": 0}
+
+    async def counting_describe(image_b64):
+        describe_calls["n"] += 1
+        return "画面にエディタ。"
+
+    p = ScreenPerceiver(
+        capturer=cap, describe=counting_describe,
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5,
+    )
+    assert await p.tick() is True          # 初回は要約する
+    assert await p.tick() is False         # 同一フレーム: 再要約しない
+    assert await p.tick() is False
+    assert describe_calls["n"] == 1        # VLM は1回だけ
+    assert ctx.get_summary() == "画面にエディタ。"   # touch で鮮度は保たれる
+
+
 async def test_tick_normalizes_summary():
     ctx = _ctx()
     p = ScreenPerceiver(
