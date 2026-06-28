@@ -30,8 +30,13 @@ local = [
     "python-dotenv>=1.0",
     "cryptography>=42.0",
 ]
+screen = [
+    "mss>=9.0",
+    "Pillow>=10.0",
+    "dxcam-cpp>=0.0.5; platform_system == 'Windows'",
+]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "soundfile>=0.12"]
-all = ["kotoha[voice,ml,local]"]
+all = ["kotoha[voice,ml,local,screen]"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
