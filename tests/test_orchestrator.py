@@ -427,3 +427,59 @@ async def test_weather_query_uses_llm_with_api_context_not_direct_time():
     assert "大阪市の現在の天気" in api_msgs[0]["content"]
     assert "時刻は、ユーザーが時刻を聞いた時だけ使う" in api_msgs[0]["content"]
     assert "現在時刻: 夜の十時ごろ" in msgs[-2]["content"]
+
+
+class _FakeScreen:
+    def __init__(self, summary): self._s = summary
+    def get_summary(self): return self._s
+
+
+async def test_screen_summary_injected_when_present():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("いまどう?"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        screen_context=_FakeScreen("画面にコードエディタが映っている。"),
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert any(c.startswith("【画面の様子】") for c in contents)
+    assert any("画面にコードエディタ" in c for c in contents)
+
+
+async def test_no_screen_message_when_summary_none():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("いまどう?"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        screen_context=_FakeScreen(None),
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert not any(c.startswith("【画面の様子】") for c in contents)
+
+
+async def test_no_screen_context_is_fine():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("いまどう?"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        screen_context=None,
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    assert captured[0] is not None   # 落ちずに通る

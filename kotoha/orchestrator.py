@@ -114,6 +114,7 @@ class Orchestrator:
         max_sentences_per_turn: int = 0,
         clock=datetime.now,
         place: str = "",
+        screen_context=None,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -143,6 +144,7 @@ class Orchestrator:
         self._max_sentences = max_sentences_per_turn   # >0 で1ターンの文数を上限(独白防止。プロンプトより優先)
         self._clock = clock
         self._place = place
+        self._screen_context = screen_context   # 最新の画面要約を毎ターン注入(任意)
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -249,6 +251,17 @@ class Orchestrator:
             "role": "system",
             "content": "【現在の状況】\n" + format_turn_context(now, place=self._place),
         })
+        # 画面知覚: 最新の画面要約があれば、状況の後に注入する(best-effort・任意)。
+        if self._screen_context is not None:
+            summary = self._screen_context.get_summary()
+            if summary:
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": (
+                        "【画面の様子】\n" + summary
+                        + "\n画面の話は、聞かれたときや明らかに関係するときだけ自然に触れる。"
+                    ),
+                })
         self._events.state("thinking")
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:
