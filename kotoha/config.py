@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from typing import Optional
 
 SAMPLE_RATE_HZ = 16000          # 内部音声: 16kHz mono float32
@@ -113,3 +114,37 @@ class Config:
         "簡潔に説明して。固有名詞やUIの文字があれば拾う。推測は最小限に。"
     )
     aux_llm_url: str = ""                           # 非リアルタイムLLM のURL。空なら ollama_url
+
+
+_TRUE = {"1", "true", "yes", "on"}
+
+# 環境変数キー -> Config フィールド名。値が非空のものだけ上書きする。
+_ENV_STR_FIELDS = (
+    ("OLLAMA_URL", "ollama_url"),
+    ("VLM_PERCEPTION_URL", "vlm_perception_url"),
+    ("AUX_LLM_URL", "aux_llm_url"),
+    ("VLM_PERCEPTION_MODEL", "vlm_perception_model"),
+    ("VLM_PERCEPTION_API", "vlm_perception_api"),
+    ("SCREEN_CAPTURE_BACKEND", "screen_capture_backend"),
+    ("LOCAL_TIMEZONE", "local_timezone"),
+    ("KOTOHA_PLACE", "local_place"),
+)
+
+
+def build_config(env=None) -> "Config":
+    """環境変数で一部フィールドを上書きした Config を返す。未設定・空はデフォルトのまま。
+
+    .env から推論先(知覚VLM・補助LLM)や画面知覚の有効化を切り替えるための入口。
+    起動時は main() で load_dotenv の後にこれを呼ぶ。API キーや天気の都市など他の
+    環境変数は従来どおり各所で os.environ から直接読む。
+    """
+    env = os.environ if env is None else env
+    overrides = {}
+    for key, field in _ENV_STR_FIELDS:
+        v = env.get(key)
+        if v is not None and v != "":
+            overrides[field] = v
+    flag = env.get("SCREEN_PERCEPTION_ENABLED")
+    if flag is not None and flag != "":
+        overrides["screen_perception_enabled"] = flag.strip().lower() in _TRUE
+    return replace(Config(), **overrides)

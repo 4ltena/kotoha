@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 
-from kotoha.config import Config
+from kotoha.config import Config, build_config
 from kotoha.health import check_local_services
 from kotoha.memory import MemoryStore, MemoryManager
 from kotoha.memory.discovery import discover_gemini_models
@@ -423,8 +423,15 @@ async def run_local(config: Config) -> None:
 
 
 def main() -> None:
+    # .env を Config 構築より先に読み、推論先・画面知覚の上書きを反映する。
     try:
-        asyncio.run(run_local(Config()))
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+    try:
+        asyncio.run(run_local(build_config()))
     except KeyboardInterrupt:
         print("\nStopped.")
 
