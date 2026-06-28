@@ -16,7 +16,12 @@ from kotoha.memory.discovery import discover_gemini_models
 from kotoha.events import NullEvents
 from kotoha.overlay_bridge import OverlayBridge
 from kotoha.llm.front_client import stream_chat
+from kotoha.llm.vlm_client import vlm_describe
 from kotoha.orchestrator import Orchestrator, make_on_audio
+from kotoha.screen.capture import DxcamCapturer, MssCapturer
+from kotoha.screen.detector import GameModeLoop
+from kotoha.screen.perceiver import ScreenPerceiver
+from kotoha.screen.state import ScreenContext
 from kotoha.tools.registry import api_search as _api_search
 from kotoha.relationship import RelationshipStore, RelationshipManager
 from kotoha.voice.mic import MicCapture
@@ -67,6 +72,7 @@ def build_orchestrator(
     on_amplitude=None,
     memory=None,
     relationship=None,
+    screen_context=None,
 ):
     """設定と長命セッションから Orchestrator を結線する(単体テスト可能)。
 
@@ -135,6 +141,7 @@ def build_orchestrator(
         max_sentences_per_turn=config.max_sentences_per_turn,
         clock=_clock_for_config(config),
         place=_display_place(config),
+        screen_context=screen_context,
     )
 
 
@@ -273,6 +280,39 @@ async def run_local(config: Config) -> None:
                 logger.exception("overlay bridge failed to start; continuing without overlay")
                 bridge = None   # events は NullEvents()、on_amplitude は None のまま
 
+        # 画面知覚(任意・既定OFF)。VLM は base_url で別バックエンド(VII 等)を指せる。
+        # screen_ctx は memory/relationship の background_gate に渡すため、ここで先に作る。
+        screen_ctx = None
+        screen_tasks = []
+        if config.screen_perception_enabled:
+            screen_ctx = ScreenContext(summary_max_age_s=config.screen_summary_max_age_s)
+            if config.screen_capture_backend == "dxcam":
+                capturer = DxcamCapturer(max_long_edge=config.screen_capture_max_long_edge)
+            else:
+                capturer = MssCapturer(max_long_edge=config.screen_capture_max_long_edge)
+            describe = functools.partial(
+                vlm_describe,
+                model=config.vlm_perception_model,
+                base_url=config.vlm_perception_url or config.ollama_url,
+                prompt=config.vlm_perception_prompt,
+                api=config.vlm_perception_api,
+                session=session,
+                timeout_s=config.vlm_perception_timeout_s,
+            )
+            perceiver = ScreenPerceiver(
+                capturer=capturer, describe=describe, screen_ctx=screen_ctx,
+                normal_interval_s=config.screen_normal_interval_s,
+                realtime_interval_s=config.screen_game_realtime_interval_s,
+                poll_s=config.screen_game_poll_s,
+            )
+            game_loop = GameModeLoop(screen_ctx=screen_ctx, config=config)
+            screen_tasks = [
+                loop.create_task(perceiver.run()),
+                loop.create_task(game_loop.run()),
+            ]
+            print("[screen] perception enabled "
+                  f"(backend={config.screen_capture_backend}, vlm={config.vlm_perception_model})")
+
         memory = None
         if config.memory_enabled:
             store = MemoryStore.load(config.memory_path)
@@ -295,6 +335,7 @@ async def run_local(config: Config) -> None:
                 loop=loop,
                 gemini_models=model_chain,
                 api_key=api_key,
+                background_gate=(screen_ctx.background_llm_allowed if screen_ctx else None),
             )
             print(f"[memory] enabled (store={config.memory_path})")
 
@@ -311,7 +352,8 @@ async def run_local(config: Config) -> None:
                 },
             )
             relationship = RelationshipManager(
-                store=rstore, config=config, session=session, loop=loop
+                store=rstore, config=config, session=session, loop=loop,
+                background_gate=(screen_ctx.background_llm_allowed if screen_ctx else None),
             )
             print(
                 f"[relationship] enabled (affection={rstore.affection}, "
@@ -339,6 +381,7 @@ async def run_local(config: Config) -> None:
             memory=memory,
             relationship=relationship,
             player=player,
+            screen_context=screen_ctx,
         )
         # ウォームアップ: 各ステージの初回コールドコスト(モデルのVRAMロード/カーネル初期化)を
         # 会話開始前に消化し、最初の応答の遅延を無くす。いずれも失敗しても致命ではない。
@@ -365,6 +408,8 @@ async def run_local(config: Config) -> None:
         try:
             await asyncio.Event().wait()   # KeyboardInterrupt まで常駐
         finally:
+            for t in screen_tasks:
+                t.cancel()
             if mic is not None:
                 mic.stop()
             if remote_server is not None:
