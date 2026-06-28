@@ -7,7 +7,7 @@ from kotoha.relationship.manager import RelationshipManager
 
 
 def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40, analyze=True,
-         r18_path=None):
+         r18_path=None, background_gate=None):
     spawned = []
 
     def spawn(coro):
@@ -24,6 +24,7 @@ def _mgr(tmp_path, *, analyze_fn, clock=None, affection=90, mood=40, analyze=Tru
         store=store, config=cfg, session=None,
         loop=asyncio.get_event_loop(),
         analyze_fn=analyze_fn, spawn=spawn, clock=clock or datetime.now,
+        background_gate=background_gate,
     )
     return mgr, spawned
 
@@ -84,4 +85,34 @@ async def test_day_change_relaxes_mood(tmp_path):
     mgr.on_turn("おはよう")
     assert mgr.store.mood == 28            # int(40 * 0.7) 引きずりつつ減衰
     assert mgr.store.last_day == "2026-06-28"
+    await asyncio.gather(*spawned)
+
+
+async def test_gate_blocks_background_analyze(tmp_path):
+    async def af(*a, **k):
+        return {"affection": 5}
+
+    mgr, spawned = _mgr(tmp_path, analyze_fn=af, background_gate=lambda: False)
+    mgr.on_turn("hi")
+    assert spawned == []                  # 省力ゲート中は起動しない
+    assert mgr.store.affection == 90      # 値は固定のまま
+
+
+async def test_gate_allows_background_analyze(tmp_path):
+    async def af(*a, **k):
+        return {}
+
+    mgr, spawned = _mgr(tmp_path, analyze_fn=af, background_gate=lambda: True)
+    mgr.on_turn("hi")
+    assert len(spawned) == 1
+    await asyncio.gather(*spawned)
+
+
+async def test_no_gate_allows_by_default(tmp_path):
+    async def af(*a, **k):
+        return {}
+
+    mgr, spawned = _mgr(tmp_path, analyze_fn=af, background_gate=None)
+    mgr.on_turn("hi")
+    assert len(spawned) == 1
     await asyncio.gather(*spawned)

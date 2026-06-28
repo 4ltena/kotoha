@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class RelationshipManager:
     def __init__(self, *, store, config, session, loop,
-                 analyze_fn=analyze, spawn=None, clock=None):
+                 analyze_fn=analyze, spawn=None, clock=None, background_gate=None):
         self.store = store
         self.config = config
         self._session = session
@@ -24,6 +24,7 @@ class RelationshipManager:
         self._analyze_fn = analyze_fn
         self._spawn = spawn or self._default_spawn
         self._clock = clock or datetime.now
+        self._background_gate = background_gate
         self.r18_threshold = config.relationship_r18_threshold
         self._lock = asyncio.Lock()
         self._bg: set = set()
@@ -61,8 +62,12 @@ class RelationshipManager:
     def on_turn(self, user_text: str, context=None) -> None:
         self._maybe_new_day()
         # 背景分析(4b)はVRAM/速度に響くため、無効時は値を固定したまま注入のみにする。
-        if getattr(self.config, "relationship_analyze_enabled", True):
-            self._spawn(self._run_analyze(user_text, context))
+        if not getattr(self.config, "relationship_analyze_enabled", True):
+            return
+        # 省力型ゲームモード中などは背景LLMを起動しない。
+        if self._background_gate is not None and not self._background_gate():
+            return
+        self._spawn(self._run_analyze(user_text, context))
 
     def _maybe_new_day(self) -> None:
         today = self._clock().date().isoformat()
@@ -80,7 +85,7 @@ class RelationshipManager:
                     user_text, self.store,
                     model=self.config.relationship_model,
                     session=self._session,
-                    base_url=self.config.ollama_url,
+                    base_url=self.config.aux_llm_url or self.config.ollama_url,
                     context=context,
                 )
             except Exception:
