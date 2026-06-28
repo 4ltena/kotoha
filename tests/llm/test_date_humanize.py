@@ -70,6 +70,28 @@ def test_greeting_guidance_empty_when_morning_matches():
     assert greeting_time_guidance("おはよう", datetime(2026, 6, 27, 8, 0)) == ""
 
 
+def test_greeting_guidance_konnichiwa_at_night():
+    g = greeting_time_guidance("こんにちは", datetime(2026, 6, 27, 22, 0))   # 夜
+    assert "現在の時間帯は「夜」" in g
+    assert "こんにちは" in g
+
+
+def test_greeting_guidance_konnichiwa_quiet_in_daytime_and_evening():
+    assert greeting_time_guidance("こんにちは", datetime(2026, 6, 27, 13, 0)) == ""   # 昼は一致
+    assert greeting_time_guidance("こんにちは", datetime(2026, 6, 27, 17, 30)) == ""  # 夕方は誤検出しない
+
+
+def test_greeting_guidance_konbanwa_in_morning():
+    g = greeting_time_guidance("こんばんは", datetime(2026, 6, 27, 8, 0))   # 朝
+    assert "現在の時間帯は「朝」" in g
+    assert "こんばんは" in g
+
+
+def test_greeting_guidance_konbanwa_quiet_in_evening_and_night():
+    assert greeting_time_guidance("こんばんは", datetime(2026, 6, 27, 17, 30)) == ""  # 夕方は一致扱い
+    assert greeting_time_guidance("こんばんは", datetime(2026, 6, 27, 22, 0)) == ""   # 夜は一致
+
+
 def test_time_for_speech_uses_12_hour_with_time_band():
     assert format_time_for_speech(datetime(2026, 6, 27, 19, 43)) == "今は夜の七時四十三分ごろです。"
     assert format_time_for_speech(datetime(2026, 6, 27, 8, 0)) == "今は朝の八時ごろです。"
