@@ -8,6 +8,8 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
+from kotoha.screen.sanitize import normalize_summary
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,6 +63,7 @@ class ScreenPerceiver:
         except Exception:
             logger.warning("VLM describe failed", exc_info=True)
             return False
+        summary = normalize_summary(summary)   # 装飾除去・最大2文へ均す
         if summary:
             self._screen_ctx.set_summary(summary)
             return True

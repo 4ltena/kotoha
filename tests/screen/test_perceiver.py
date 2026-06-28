@@ -33,6 +33,16 @@ async def test_tick_updates_summary():
     assert ctx.get_summary() == "画面にエディタ。"
 
 
+async def test_tick_normalizes_summary():
+    ctx = _ctx()
+    p = ScreenPerceiver(
+        capturer=_Capturer(), describe=_describe_factory("画面に**99%**の負荷。詳細あり。蛇足。"),
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5,
+    )
+    assert await p.tick() is True
+    assert ctx.get_summary() == "画面に99%の負荷。詳細あり。"   # 装飾除去＋2文クランプ
+
+
 async def test_powersave_skips_capture():
     ctx = _ctx()
     ctx.set_mode("game_powersave")
