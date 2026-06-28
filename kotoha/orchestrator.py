@@ -240,7 +240,8 @@ class Orchestrator:
         if self.relationship is not None:
             messages.insert(-1, {"role": "system", "content": self.relationship.persona_context()})
             self.relationship.on_turn(text, context=ctx)
-        # 現在状況を毎ターン新しく、ユーザー発話の直前(最も近い位置)へ注入し確実に渡す。
+        # 現在状況を毎ターン新しく、ユーザー発話の直前へ注入し確実に渡す。
+        # 画面要約がある場合はその後に積むため、ユーザー発話に最も近いのは画面要約になる。
         guidance = greeting_time_guidance(text, now)
         if guidance:
             messages.insert(-1, {
@@ -323,6 +324,10 @@ class Orchestrator:
                 sentence = _clean_reply_text(sentence)
                 if not sentence:
                     continue
+                # ト書き・記号のみの文は発話しないので、履歴にも積まない(発話と保存を一致させる)。
+                if _is_stage_direction(sentence) or not _has_speech(sentence):
+                    logger.info("skip non-spoken: %s", sentence)
+                    continue
                 self._assistant_buf += sentence
                 await self._sentence_q.put(sentence)
                 count += 1
@@ -350,8 +355,9 @@ class Orchestrator:
             tail = _complete_tail_for_speech(splitter.flush())
             if tail:
                 tail = _clean_reply_text(tail)
-                self._assistant_buf += tail
-                await self._sentence_q.put(tail)
+                if tail and not _is_stage_direction(tail) and _has_speech(tail):
+                    self._assistant_buf += tail
+                    await self._sentence_q.put(tail)
         await self._sentence_q.put(_SENTINEL)
 
     async def _sentences_to_audio(self) -> None:

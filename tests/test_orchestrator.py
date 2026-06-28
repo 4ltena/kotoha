@@ -315,6 +315,9 @@ async def test_stage_direction_parenthetical_not_spoken():
     )
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     assert player.played == [("WAV:" + "はい。").encode()]
+    # 未発話のト書きは履歴にも残さない(発話と保存内容を一致させる)。
+    assert {"role": "assistant", "content": "はい。"} in list(orch.history)
+    assert not any("02:15" in m["content"] for m in orch.history)
 
 
 def _make_capturing_llm(tokens, sink):
@@ -447,9 +450,16 @@ async def test_screen_summary_injected_when_present():
         screen_context=_FakeScreen("画面にコードエディタが映っている。"),
     )
     await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
-    contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    msgs = captured[0]
+    contents = [m["content"] for m in msgs if m["role"] == "system"]
     assert any(c.startswith("【画面の様子】") for c in contents)
     assert any("画面にコードエディタ" in c for c in contents)
+    # 画面の様子は現在の状況の後（ユーザー発話に最も近い位置）へ入る。
+    full = [m["content"] for m in msgs]
+    i_screen = next(i for i, c in enumerate(full) if c.startswith("【画面の様子】"))
+    i_sit = next(i for i, c in enumerate(full) if c.startswith("【現在の状況】"))
+    assert i_screen > i_sit
+    assert msgs[-1]["role"] == "user"
 
 
 async def test_no_screen_message_when_summary_none():
