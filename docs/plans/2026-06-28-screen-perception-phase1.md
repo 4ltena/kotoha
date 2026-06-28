@@ -51,7 +51,7 @@ def test_screen_perception_defaults():
     assert c.screen_game_process_names == ()
     assert c.screen_game_poll_s == 2.0
     assert c.vlm_perception_url == ""
-    assert c.vlm_perception_model == "qwen3-vl:4b"
+    assert c.vlm_perception_model == "qwen3.5:4b"
     assert c.vlm_perception_api == "openai"
     assert c.vlm_perception_timeout_s == 20.0
     assert "画面" in c.vlm_perception_prompt
@@ -80,7 +80,7 @@ Expected: FAIL（`AttributeError: ... has no attribute 'screen_perception_enable
     screen_game_process_names: tuple = ()          # 補正用のプロセス名リスト
     screen_game_poll_s: float = 2.0                # ゲーム検出のポーリング間隔
     vlm_perception_url: str = ""                   # 知覚VLM のURL。空なら ollama_url
-    vlm_perception_model: str = "qwen3-vl:4b"
+    vlm_perception_model: str = "qwen3.5:4b"        # 単一GPUでは会話と同じ vision モデルを使い回す
     vlm_perception_api: str = "openai"             # "openai" | "ollama"
     vlm_perception_timeout_s: float = 20.0
     vlm_perception_prompt: str = (
@@ -1488,7 +1488,7 @@ VLM_PERCEPTION_URL=
 AUX_LLM_URL=
 ```
 
-（注。env からの上書きが必要なら、`local_app.py` で `os.environ.get("VLM_PERCEPTION_URL")` 等を読んで `Config` 構築時に渡す配線を足す。Phase 1 既定はコード内 `Config` の値で動くため、env 連携は任意。）
+（実装済み。env 連携は後追いで `kotoha/config.py` の `build_config()` として配線した。`main()` が `load_dotenv()` の後に `build_config()` を呼び、`SCREEN_PERCEPTION_ENABLED` / `VLM_PERCEPTION_MODEL` / `VLM_PERCEPTION_URL` / `AUX_LLM_URL` / `SCREEN_CAPTURE_BACKEND` / `LOCAL_TIMEZONE` / `OLLAMA_URL` / `KOTOHA_PLACE` を環境変数から上書きする。未設定・空はコード内 `Config` の既定のまま。）
 
 - [ ] **Step 7: テスト全体を実行**
 
