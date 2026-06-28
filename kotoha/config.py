@@ -110,8 +110,9 @@ class Config:
     vlm_perception_api: str = "openai"             # "openai" | "ollama"
     vlm_perception_timeout_s: float = 20.0
     vlm_perception_prompt: str = (
-        "次の画面のスクリーンショットを見て、いま何が映っているかを日本語で1〜2文、"
-        "簡潔に説明して。固有名詞やUIの文字があれば拾う。推測は最小限に。"
+        "次の画面のスクリーンショットを見て、いま何が映っているかを日本語で簡潔に説明して。"
+        "最大2文。固有名詞やUIの文字があれば拾う。推測は最小限に。"
+        "記号やMarkdown装飾(**、#、`、箇条書きなど)は使わず、プレーンな文だけで書く。"
     )
     aux_llm_url: str = ""                           # 非リアルタイムLLM のURL。空なら ollama_url
 
