@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ def get_foreground_info():
 
     ctypes で前面窓の矩形をプライマリ解像度と比べ、プロセス名を取得する best-effort。
     """
+    if sys.platform != "win32":
+        return None   # 非Windowsでは静かに諦める(毎ポール tracebackを出さない)
     try:
         import ctypes
         from ctypes import wintypes

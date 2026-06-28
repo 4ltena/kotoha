@@ -61,9 +61,15 @@ class ScreenPerceiver:
         return False
 
     async def run(self) -> None:
-        while not self._stop:
-            await self.tick()
-            await self._sleep(self._interval())
+        try:
+            while not self._stop:
+                await self.tick()
+                await self._sleep(self._interval())
+        finally:
+            # 停止・キャンセルのいずれでもキャプチャ資源を解放する。
+            close = getattr(self._capturer, "close", None)
+            if callable(close):
+                close()
 
     def stop(self) -> None:
         self._stop = True

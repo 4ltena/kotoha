@@ -73,3 +73,68 @@ def test_interval_by_mode():
     assert p._interval() == 4.0
     ctx.set_mode("game_realtime"); assert p._interval() == 0.5
     ctx.set_mode("game_powersave"); assert p._interval() == 2.0
+
+
+class _ClosableCapturer(_Capturer):
+    def __init__(self):
+        super().__init__()
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+async def test_run_loops_until_stop():
+    ctx = _ctx()
+    cap = _Capturer()
+    p = None
+
+    async def fake_sleep(_):
+        if cap.calls >= 3:
+            p.stop()
+
+    p = ScreenPerceiver(
+        capturer=cap, describe=_describe_factory("画面。"),
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5, sleep=fake_sleep,
+    )
+    await p.run()
+    assert cap.calls == 3   # stop までキャプチャを繰り返した
+
+
+async def test_run_closes_capturer_on_exit():
+    ctx = _ctx()
+    cap = _ClosableCapturer()
+    p = None
+
+    async def fake_sleep(_):
+        p.stop()
+
+    p = ScreenPerceiver(
+        capturer=cap, describe=_describe_factory("画面。"),
+        screen_ctx=ctx, normal_interval_s=1.0, realtime_interval_s=1.0, sleep=fake_sleep,
+    )
+    await p.run()
+    assert cap.closed is True   # run() の finally でキャプチャ資源を解放
+
+
+async def test_run_closes_capturer_on_cancel():
+    import asyncio
+    ctx = _ctx()
+    cap = _ClosableCapturer()
+
+    async def slow_sleep(_):
+        await asyncio.sleep(3600)   # ここでキャンセルされる
+
+    p = ScreenPerceiver(
+        capturer=cap, describe=_describe_factory("画面。"),
+        screen_ctx=ctx, normal_interval_s=1.0, realtime_interval_s=1.0, sleep=slow_sleep,
+    )
+    task = asyncio.ensure_future(p.run())
+    for _ in range(5):   # tick を1回通してから sleep でブロックさせる
+        await asyncio.sleep(0)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert cap.closed is True   # キャンセルでも finally が走り解放される

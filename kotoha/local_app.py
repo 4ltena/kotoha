@@ -410,6 +410,9 @@ async def run_local(config: Config) -> None:
         finally:
             for t in screen_tasks:
                 t.cancel()
+            if screen_tasks:
+                # キャンセル完了まで待ち、run() の finally でキャプチャ資源を解放させる。
+                await asyncio.gather(*screen_tasks, return_exceptions=True)
             if mic is not None:
                 mic.stop()
             if remote_server is not None:

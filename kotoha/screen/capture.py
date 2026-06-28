@@ -49,6 +49,16 @@ class MssCapturer:
             logger.warning("mss capture failed", exc_info=True)
             return None
 
+    def close(self) -> None:
+        """GDI コンテキストを解放する。未生成なら何もしない。"""
+        sct = self._sct
+        self._sct = None
+        if sct is not None:
+            try:
+                sct.close()
+            except Exception:
+                logger.warning("mss close failed", exc_info=True)
+
 
 class DxcamCapturer:
     """dxcam(DXGI Desktop Duplication) でゲーム画面も取得する(Windows)。"""
@@ -74,3 +84,17 @@ class DxcamCapturer:
         except Exception:
             logger.warning("dxcam capture failed", exc_info=True)
             return None
+
+    def close(self) -> None:
+        """DXGI 複製オブジェクトを解放する。未生成なら何もしない。"""
+        cam = self._cam
+        self._cam = None
+        if cam is None:
+            return
+        for name in ("release", "stop"):   # dxcam-cpp のAPI差を吸収
+            fn = getattr(cam, name, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    logger.warning("dxcam %s failed", name, exc_info=True)
