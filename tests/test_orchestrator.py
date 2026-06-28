@@ -1,4 +1,5 @@
 import numpy as np
+from datetime import datetime
 from kotoha.orchestrator import Orchestrator
 from kotoha.llm import persona
 
@@ -265,6 +266,39 @@ async def test_max_sentences_cap_limits_output():
     )
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     assert player.played == [("WAV:1。").encode(), ("WAV:2。").encode()]  # 上限2で打ち切り
+    assert list(orch.history)[-1] == {"role": "assistant", "content": "1。2。"}
+
+
+async def test_long_unfinished_tail_is_not_spoken_or_recorded():
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["これは途中で切れた長い説明文で、まだまだ続きそうな内容"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == []
+    assert list(orch.history) == [{"role": "user", "content": "やあ"}]
+
+
+async def test_short_unpunctuated_tail_gets_closed_for_speech():
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["うん、そうですね"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == [("WAV:うん、そうですね。").encode()]
+    assert list(orch.history)[-1] == {"role": "assistant", "content": "うん、そうですね。"}
 
 
 async def test_stage_direction_parenthetical_not_spoken():
@@ -347,16 +381,49 @@ async def test_relationship_context_injected_and_on_turn_called():
 async def test_current_time_injected_just_before_user():
     captured = []
     orch = Orchestrator(
-        transcriber=_FakeTranscriber("今何時？"),
+        transcriber=_FakeTranscriber("少し話そう"),
         llm_stream=_make_capturing_llm(["はい。"], captured),
         tts=_fake_tts,
         player=_RecPlayer(),
         model="m",
         vad_factory=lambda: _FakeVad(),
         persona=persona,
+        clock=lambda: datetime(2026, 6, 27, 19, 5),
+        place="Osaka,JP",
     )
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     msgs = captured[0]
     assert msgs[-1]["role"] == "user"                  # 末尾はユーザー発話
-    assert "今の時刻" in msgs[-2]["content"]            # その直前に現在時刻
-    assert "時" in msgs[-2]["content"]
+    assert "現在の状況" in msgs[-2]["content"]            # その直前に現在状況
+    assert "時間帯: 夜" in msgs[-2]["content"]
+    assert "現在時刻: 夜の七時五分ごろ" in msgs[-2]["content"]
+    assert "時刻を聞かれた時の返答" not in msgs[-2]["content"]
+    assert "19:05" not in msgs[-2]["content"]
+    assert "現在地: Osaka,JP" in msgs[-2]["content"]
+
+
+async def test_weather_query_uses_llm_with_api_context_not_direct_time():
+    captured = []
+
+    async def fake_search(text):
+        return "大阪市の現在の天気: 厚い雲、気温24℃、湿度76%。"
+
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("今の天気は。"),
+        llm_stream=_make_capturing_llm(["曇っています。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        api_search=fake_search,
+        clock=lambda: datetime(2026, 6, 27, 22, 0),
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    msgs = captured[0]
+    assert msgs[-1]["role"] == "user"
+    api_msgs = [m for m in msgs if m.get("content", "").startswith("【APIで取得した情報】")]
+    assert api_msgs
+    assert "大阪市の現在の天気" in api_msgs[0]["content"]
+    assert "時刻は、ユーザーが時刻を聞いた時だけ使う" in api_msgs[0]["content"]
+    assert "現在時刻: 夜の十時ごろ" in msgs[-2]["content"]

@@ -12,8 +12,8 @@ FRAME_MS = 20                   # 1 パケット = 20ms
 class Config:
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3.5:4b"
-    llm_num_predict: int = 120          # 応答の生成トークン上限(独白・冗長の抑制。1〜2文向け)
-    max_sentences_per_turn: int = 3     # 1ターンで読み上げる文数の上限(独白防止。プロンプトより優先)
+    llm_num_predict: int = 160          # 途中切れを避けるための生成上限。短さは文数上限で担保する
+    max_sentences_per_turn: int = 2     # 1ターンで読み上げる文数の上限(独白防止。プロンプトより優先)
     tts_http_url: str = "http://localhost:50021"
     tts_http_speaker: int = 1
     whisper_model: str = "large-v3-turbo"
@@ -52,6 +52,8 @@ class Config:
     openweather_default_city: str = "Tokyo"
     openweather_units: str = "metric"
     openweather_lang: str = "ja"
+    local_timezone: str = "Asia/Tokyo"          # 毎ターンの時刻文脈に使うタイムゾーン
+    local_place: str = ""                       # 毎ターンの地点文脈。空なら OPENWEATHER_CITY 等から推定
     # --- 関係性パラメータ (kotoha/relationship/) ---
     relationship_enabled: bool = True
     relationship_path: str = "data/relationship.json"

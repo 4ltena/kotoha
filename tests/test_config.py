@@ -17,8 +17,8 @@ def test_config_defaults():
     assert c.vad_silence_ms == 400
     assert c.bargein_trigger_ms == 250
     assert c.language == "ja"
-    assert c.llm_num_predict == 120
-    assert c.max_sentences_per_turn == 3
+    assert c.llm_num_predict == 160
+    assert c.max_sentences_per_turn == 2
 
 
 def test_stt_hallucination_defaults():
@@ -58,6 +58,8 @@ def test_openweather_defaults():
     assert c.openweather_default_city == "Tokyo"
     assert c.openweather_units == "metric"
     assert c.openweather_lang == "ja"
+    assert c.local_timezone == "Asia/Tokyo"
+    assert c.local_place == ""
 
 
 def test_relationship_defaults():

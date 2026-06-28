@@ -1,6 +1,12 @@
-from datetime import date
+from datetime import date, datetime
 
-from kotoha.llm.date_humanize import humanize_dates
+from kotoha.llm.date_humanize import (
+    humanize_dates,
+    format_turn_context,
+    format_time_for_speech,
+    greeting_time_guidance,
+    time_band,
+)
 
 T = date(2026, 6, 27)   # 土曜
 
@@ -34,3 +40,36 @@ def test_never_speaks_year():
 
 def test_non_date_text_untouched():
     assert humanize_dates("バージョン 1-2-3 の話", T) == "バージョン 1-2-3 の話"
+
+
+def test_turn_context_includes_structured_time_band_and_place():
+    now = datetime(2026, 6, 27, 19, 5)
+    ctx = format_turn_context(now, place="Osaka,JP")
+    assert "現在日付: 2026年6月27日(土)" in ctx
+    assert "現在時刻: 夜の七時五分ごろ" in ctx
+    assert "時間帯: 夜" in ctx
+    assert "時刻を聞かれた時の返答" not in ctx
+    assert "現在地: Osaka,JP" in ctx
+    assert "19:05" not in ctx
+
+
+def test_time_band_boundaries():
+    assert time_band(datetime(2026, 6, 27, 4, 59)) == "深夜"
+    assert time_band(datetime(2026, 6, 27, 5, 0)) == "朝"
+    assert time_band(datetime(2026, 6, 27, 19, 0)) == "夜"
+
+
+def test_greeting_guidance_prevents_morning_at_night():
+    guidance = greeting_time_guidance("おはよう", datetime(2026, 6, 27, 19, 0))
+    assert "現在の時間帯は「夜」" in guidance
+    assert "もう朝ですよ" in guidance
+    assert "今は夜ですよ" in guidance
+
+
+def test_greeting_guidance_empty_when_morning_matches():
+    assert greeting_time_guidance("おはよう", datetime(2026, 6, 27, 8, 0)) == ""
+
+
+def test_time_for_speech_uses_12_hour_with_time_band():
+    assert format_time_for_speech(datetime(2026, 6, 27, 19, 43)) == "今は夜の七時四十三分ごろです。"
+    assert format_time_for_speech(datetime(2026, 6, 27, 8, 0)) == "今は朝の八時ごろです。"

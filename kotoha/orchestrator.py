@@ -14,7 +14,7 @@ from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 from kotoha.llm import persona as _persona
 from kotoha.llm.sentence_splitter import SentenceSplitter
 from kotoha.llm.think_filter import ThinkFilter
-from kotoha.llm.date_humanize import humanize_dates, format_time_spoken
+from kotoha.llm.date_humanize import humanize_dates, format_turn_context, greeting_time_guidance
 from kotoha.events import NullEvents
 # Task 12 で feed_audio から使用
 from kotoha.voice.vad import VadSegmenter, BargeInDetector
@@ -25,6 +25,9 @@ _SENTINEL = object()
 
 # ト書き/状況説明の括弧書きだけの文(例:「（02:15 ごろ）」)。声に出さず TTS へ流さない。
 _STAGE_DIRECTION_RE = re.compile(r"^\s*[（(][^（）()]*[）)]\s*$")
+_SENTENCE_ENDINGS = "。．！？!?\n"
+_MAX_SPOKEN_TAIL_CHARS = 24
+_PREFIX_RE = re.compile(r"^\s*(つくよみ|ツクヨミ|assistant|bot)\s*[:：]\s*", re.IGNORECASE)
 
 
 def _is_stage_direction(text: str) -> bool:
@@ -45,6 +48,27 @@ def _has_speech(text: str) -> bool:
     for c in _TTS_STRIP:
         s = s.replace(c, "")
     return bool(re.search(r"\w", s))
+
+
+def _complete_tail_for_speech(text: str) -> str:
+    """ストリーム終端の未確定断片を、短い場合だけ発話できる形にする。"""
+    tail = text.strip()
+    if not tail:
+        return ""
+    if tail[-1] in _SENTENCE_ENDINGS:
+        return tail
+    if len(tail) <= _MAX_SPOKEN_TAIL_CHARS and _has_speech(tail):
+        return tail + "。"
+    return ""
+
+
+def _clean_reply_text(text: str) -> str:
+    """TTS と履歴に入れる前の軽い整形。内容の言い換えはしない。"""
+    s = text.strip()
+    s = _PREFIX_RE.sub("", s)
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace(" 。", "。").replace(" ？", "？").replace(" ！", "！")
+    return s
 
 
 def make_on_audio(orch):
@@ -88,6 +112,8 @@ class Orchestrator:
         api_search=None,
         relationship=None,
         max_sentences_per_turn: int = 0,
+        clock=datetime.now,
+        place: str = "",
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -115,6 +141,8 @@ class Orchestrator:
         self.api_search = api_search   # async (text) -> str|None。外部API検索(任意)
         self.relationship = relationship   # 関係値マネージャ(任意)
         self._max_sentences = max_sentences_per_turn   # >0 で1ターンの文数を上限(独白防止。プロンプトより優先)
+        self._clock = clock
+        self._place = place
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -180,6 +208,7 @@ class Orchestrator:
             logger.info("STT: empty result; skipping")
             return
         logger.info("recognized: %s", text)
+        now = self._clock()
         if self.memory is not None:
             self.memory.add_user(text)
             messages = self.memory.build_messages()
@@ -196,16 +225,29 @@ class Orchestrator:
                 ctx = None
             if ctx:
                 logger.info("API search: %s", ctx)
-                messages.insert(-1, {"role": "system", "content": "【APIで取得した情報】\n" + ctx})
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": (
+                        "【APIで取得した情報】\n"
+                        + ctx
+                        + "\nこの情報がユーザーの質問に関係する場合は、この情報を優先して短く答える。"
+                        + "時刻は、ユーザーが時刻を聞いた時だけ使う。"
+                    ),
+                })
         # 関係性: 現在値を system へ注入し、背景で値更新を起動(主応答は止めない)。
         if self.relationship is not None:
             messages.insert(-1, {"role": "system", "content": self.relationship.persona_context()})
             self.relationship.on_turn(text, context=ctx)
-        # 現在時刻を毎ターン新しく、ユーザー発話の直前(最も近い位置)へ注入し確実に渡す。
+        # 現在状況を毎ターン新しく、ユーザー発話の直前(最も近い位置)へ注入し確実に渡す。
+        guidance = greeting_time_guidance(text, now)
+        if guidance:
+            messages.insert(-1, {
+                "role": "system",
+                "content": "【この発話への時刻判定】\n" + guidance,
+            })
         messages.insert(-1, {
             "role": "system",
-            "content": "【今の時刻】" + format_time_spoken(datetime.now())
-            + " 時刻や日付を聞かれたら、この値をそのまま使って普通の文で答える。",
+            "content": "【現在の状況】\n" + format_turn_context(now, place=self._place),
         })
         self._events.state("thinking")
         self._turn_task = asyncio.create_task(self._run_turn(messages))
@@ -259,13 +301,16 @@ class Orchestrator:
             nonlocal _first_sentence, count
             if not clean:
                 return False
-            self._assistant_buf += clean
             for sentence in splitter.push(clean):
                 if _first_sentence:
                     logger.info(
                         "[latency] LLM first sentence: %.2fs", time.perf_counter() - _t0
                     )
                     _first_sentence = False
+                sentence = _clean_reply_text(sentence)
+                if not sentence:
+                    continue
+                self._assistant_buf += sentence
                 await self._sentence_q.put(sentence)
                 count += 1
                 if cap and count >= cap:
@@ -289,8 +334,10 @@ class Orchestrator:
         if not stopped:
             stopped = await _emit(think.flush())
         if not stopped:
-            tail = splitter.flush()
+            tail = _complete_tail_for_speech(splitter.flush())
             if tail:
+                tail = _clean_reply_text(tail)
+                self._assistant_buf += tail
                 await self._sentence_q.put(tail)
         await self._sentence_q.put(_SENTINEL)
 

@@ -82,6 +82,8 @@ def test_build_orchestrator_wires_tts_llm_player_vad(monkeypatch):
     assert captured["stt_timeout"] == cfg.stt_timeout_s
     assert captured["tts_timeout"] == cfg.tts_timeout_s
     assert captured["play_timeout"] == cfg.play_timeout_s
+    assert callable(captured["clock"])
+    assert captured["place"] == cfg.openweather_default_city
 
 
 def test_build_orchestrator_passes_events(monkeypatch):

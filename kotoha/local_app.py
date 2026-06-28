@@ -4,6 +4,8 @@ import functools
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
 
@@ -24,6 +26,33 @@ from kotoha.voice.tts_gptsovits import synthesize
 from kotoha.voice.vad import SileroVad
 
 logger = logging.getLogger(__name__)
+
+
+def _display_place(config) -> str:
+    """毎ターンの地点文脈に入れる表示名。"""
+    return (
+        config.local_place
+        or os.environ.get("KOTOHA_PLACE")
+        or os.environ.get("OPENWEATHER_CITY")
+        or config.openweather_default_city
+    )
+
+
+def _clock_for_config(config):
+    """設定タイムゾーンで現在時刻を返す clock。"""
+    try:
+        tz = ZoneInfo(config.local_timezone)
+    except ZoneInfoNotFoundError:
+        if config.local_timezone == "Asia/Tokyo":
+            tz = timezone(timedelta(hours=9), "JST")
+        else:
+            logger.warning("unknown timezone %s; using system local time", config.local_timezone)
+            return datetime.now
+
+    def _clock():
+        return datetime.now(tz)
+
+    return _clock
 
 
 def build_orchestrator(
@@ -104,6 +133,8 @@ def build_orchestrator(
         api_search=api_search,
         relationship=relationship,
         max_sentences_per_turn=config.max_sentences_per_turn,
+        clock=_clock_for_config(config),
+        place=_display_place(config),
     )
 
 
