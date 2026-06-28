@@ -1508,12 +1508,13 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ## 実機確認（integration・proof 環境）
 
-ユニットでは担保しない実機部分。proof 環境（4080 + Radeon VII）で目視確認する。
+ユニットでは担保しない実機部分。proof 環境（4080 + Radeon VII）で目視確認する。VII の構成根拠は spec の「マルチGPU配置」「未決・後続」を参照。
 
-- VII で llama.cpp の Vulkan サーバ（OpenAI 互換）を `qwen3-vl:4b` ＋ mmproj で起動し、`GGML_VK_VISIBLE_DEVICES` で VII を指定、4080 の Ollama と別ポートにする。`vlm_perception_url`/`aux_llm_url` を VII へ向ける。
-- `screen_perception_enabled=True` でつくよみが画面内容に触れること、通常時は数秒間隔で会話を妨げないこと。
+- 4080 は Ollama/CUDA を `:11434`・`OLLAMA_VULKAN=0` で起動。VII は Vulkan サーバを別ポートで起動する。最短は LM Studio（`:1234/v1`）、最新 Qwen3-VL 確実なら llama.cpp llama-server（Vulkan ビルド、`--mmproj` 指定）。`llama-server --list-devices` で VII の index を確認し `GGML_VK_VISIBLE_DEVICES` でピン留めする（混在環境は列挙順が不定）。`vlm_perception_url`（と必要なら `aux_llm_url`）を VII の base URL へ向け、`vlm_perception_api` を `openai` にする。
+- `screen_perception_enabled=True` でつくよみが画面内容に触れること、通常時は数秒間隔で会話を妨げないこと。VII の画像 prefill は約 2〜4 秒のため、リアルタイム型でも実効周期はそれに律速される点を確認する。
 - ゲーム起動でモードが切り替わること。省力型で記憶・関係性・知覚が止まること、リアルタイム型で dxcam が高頻度に取得すること。
 - VLM/キャプチャを落としても会話が継続すること。
+- **既知バグの確認**。llama.cpp の Qwen3-VL で連続2回目のマルチモーダル要求が失敗する報告（#17200）を踏まないか確認する。踏む場合は llama.cpp を最新ビルドにする、または知覚ループで要求ごとにスロット/セッションを作り直す対策を入れる。
 
 ## Self-Review（記入済み）
 
