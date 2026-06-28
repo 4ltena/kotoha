@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from kotoha.screen.state import ScreenContext
@@ -82,6 +84,31 @@ class _ClosableCapturer(_Capturer):
 
     def close(self):
         self.closed = True
+
+
+class _ThreadRecordingCapturer:
+    def __init__(self):
+        self.value = "IMG"
+        self.calls = 0
+        self.thread_ident = None
+
+    def capture(self):
+        self.calls += 1
+        self.thread_ident = threading.get_ident()
+        return self.value
+
+
+async def test_capture_runs_off_the_event_loop_thread():
+    ctx = _ctx()
+    cap = _ThreadRecordingCapturer()
+    p = ScreenPerceiver(
+        capturer=cap, describe=_describe_factory("画面。"),
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5,
+    )
+    assert await p.tick() is True
+    assert cap.calls == 1
+    assert cap.thread_ident is not None
+    assert cap.thread_ident != threading.get_ident()   # ループスレッドを塞がない
 
 
 async def test_run_loops_until_stop():
