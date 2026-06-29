@@ -526,3 +526,37 @@ async def test_operator_context_injected_before_llm():
     await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
     sys_contents = [m["content"] for m in captured[0] if m["role"] == "system"]
     assert any("検索ボタンを操作した" in c for c in sys_contents)
+
+
+async def test_screen_summary_injected_with_app_prefix():
+    from kotoha.screen.state import ScreenContext
+
+    ctx = ScreenContext(summary_max_age_s=1e9, clock=lambda: 0.0)
+    ctx.set_summary("コードを書いている。", app="code.exe")
+
+    captured = []
+
+    def llm(messages, *, model):
+        captured.append([dict(m) for m in messages])
+
+        async def gen():
+            yield "はい。"
+        return gen()
+
+    async def tts(text): return b""
+
+    class _Tr:
+        def transcribe(self, audio): return "いまどう?"
+
+    class _Player:
+        def is_playing(self): return False
+        def stop(self): pass
+        async def play_and_wait(self, wav): return True
+
+    orch = Orchestrator(
+        transcriber=_Tr(), llm_stream=llm, tts=tts, player=_Player(),
+        model="m", vad_factory=lambda: object(), persona=persona, screen_context=ctx,
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    sys_contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert any("(アプリ: code.exe)" in c and "コードを書いている" in c for c in sys_contents)

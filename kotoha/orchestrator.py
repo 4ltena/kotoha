@@ -258,10 +258,13 @@ class Orchestrator:
         if self._screen_context is not None:
             summary = self._screen_context.get_summary()
             if summary:
+                getter = getattr(self._screen_context, "get_app", None)
+                app = (getter() or "") if callable(getter) else ""
+                prefix = f"(アプリ: {app})\n" if app else ""
                 messages.insert(-1, {
                     "role": "system",
                     "content": (
-                        "【画面の様子】\n" + summary
+                        "【画面の様子】\n" + prefix + summary
                         + "\n画面の話は、聞かれたときや明らかに関係するときだけ自然に触れる。"
                     ),
                 })
