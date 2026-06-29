@@ -20,6 +20,8 @@ def _describe_action(action, coords) -> str:
         return f"scroll {action.amount}"
     if k == "hotkey":
         return f"hotkey {action.keys}"
+    if k == "drag":
+        return f"drag {coords}->{getattr(action, 'to_target', '')}"
     return k
 
 
@@ -42,6 +44,10 @@ class _PyAutoGuiBackend:
     def hotkey(self, keys):
         import keyboard
         keyboard.send(keys)
+
+    def drag(self, x1, y1, x2, y2):
+        self._pg.moveTo(x1, y1)
+        self._pg.dragTo(x2, y2, duration=0.3)
 
 
 class Actuator:
@@ -84,7 +90,7 @@ class Actuator:
         """次のコマンドのために動作カウントだけ戻す。kill ラッチ(_aborted)は保持する。"""
         self._count = 0
 
-    def execute(self, action, *, coords) -> bool:
+    def execute(self, action, *, coords, coords_to=None) -> bool:
         if self._aborted or self._count >= self._max_actions:
             return False
         self._count += 1
@@ -92,12 +98,12 @@ class Actuator:
             if self._dry_run:
                 logger.info("[dry-run] %s", _describe_action(action, coords))
                 return True
-            return self._do(action, coords)
+            return self._do(action, coords, coords_to)
         except Exception:
             logger.warning("actuation failed", exc_info=True)
             return False
 
-    def _do(self, action, coords) -> bool:
+    def _do(self, action, coords, coords_to=None) -> bool:
         b = self._backend
         k = action.kind
         if k == "click":
@@ -112,6 +118,8 @@ class Actuator:
             b.scroll(action.amount)
         elif k == "hotkey":
             b.hotkey(action.keys)
+        elif k == "drag":
+            b.drag(coords[0], coords[1], coords_to[0], coords_to[1])
         else:
             return False
         return True

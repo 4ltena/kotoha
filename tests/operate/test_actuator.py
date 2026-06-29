@@ -12,6 +12,7 @@ class _FakeBackend:
     def type_text(self, t): self.calls.append(("type", t))
     def scroll(self, n): self.calls.append(("scroll", n))
     def hotkey(self, k): self.calls.append(("hotkey", k))
+    def drag(self, x1, y1, x2, y2): self.calls.append(("drag", x1, y1, x2, y2))
 
 
 def test_dry_run_does_not_touch_backend():
@@ -57,3 +58,17 @@ def test_begin_command_preserves_kill_latch():
     act._aborted = True
     act.begin_command()
     assert act.execute(ActionRequest("click"), coords=(1, 1)) is False  # kill ラッチは残る
+
+
+def test_drag_dispatches_both_points():
+    b = _FakeBackend()
+    act = Actuator(dry_run=False, kill_hotkey="ctrl+alt+q", max_actions=1, backend=b)
+    assert act.execute(ActionRequest("drag"), coords=(10, 20), coords_to=(30, 40)) is True
+    assert b.calls == [("drag", 10, 20, 30, 40)]
+
+
+def test_drag_dry_run_does_not_touch_backend():
+    b = _FakeBackend()
+    act = Actuator(dry_run=True, kill_hotkey="ctrl+alt+q", max_actions=1, backend=b)
+    assert act.execute(ActionRequest("drag"), coords=(1, 2), coords_to=(3, 4)) is True
+    assert b.calls == []
