@@ -183,3 +183,11 @@ def test_build_config_reads_operation_and_grounding_env():
 def test_screen_change_hash_threshold_default():
     from kotoha.config import Config
     assert Config().screen_change_hash_threshold == 4
+
+
+def test_grounding_self_check_defaults():
+    from kotoha.config import Config
+    c = Config()
+    assert c.operation_grounding_self_check is False
+    assert c.operation_grounding_tolerance_px == 30
+    assert "ゴミ箱" in c.operation_destructive_keywords

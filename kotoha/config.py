@@ -124,11 +124,14 @@ class Config:
     operation_destructive_keywords: tuple = (
         "送信", "削除", "消", "購入", "買", "注文", "支払", "送金",
         "投稿", "公開", "閉じ", "破棄", "リセット", "フォーマット", "アンインストール",
+        "ゴミ箱", "ごみ箱",
     )
     operation_destructive_hotkeys_always: bool = True
     operation_kill_hotkey: str = "ctrl+alt+q"
     operation_max_actions_per_command: int = 1
     operation_pending_ttl_s: float = 60.0
+    operation_grounding_self_check: bool = False   # True で同一対象を2回grounding し座標不一致なら棄却
+    operation_grounding_tolerance_px: int = 30      # 自己整合の許容差(Chebyshev)
     hotkey_map: tuple = (
         ("保存", "ctrl+s"), ("元に戻す", "ctrl+z"), ("コピー", "ctrl+c"),
         ("貼り付け", "ctrl+v"), ("全選択", "ctrl+a"),
