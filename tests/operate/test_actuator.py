@@ -40,3 +40,20 @@ def test_kill_aborts():
     act = Actuator(dry_run=False, kill_hotkey="ctrl+alt+q", max_actions=5, backend=b)
     act._aborted = True
     assert act.execute(ActionRequest("click"), coords=(1, 1)) is False
+
+
+def test_begin_command_resets_per_command_budget():
+    b = _FakeBackend()
+    act = Actuator(dry_run=False, kill_hotkey="ctrl+alt+q", max_actions=1, backend=b)
+    assert act.execute(ActionRequest("click"), coords=(1, 1)) is True   # 1回目: ok
+    assert act.execute(ActionRequest("click"), coords=(2, 2)) is False  # 予算切れ
+    act.begin_command()
+    assert act.execute(ActionRequest("click"), coords=(3, 3)) is True   # リセット後: ok
+
+
+def test_begin_command_preserves_kill_latch():
+    b = _FakeBackend()
+    act = Actuator(dry_run=False, kill_hotkey="ctrl+alt+q", max_actions=5, backend=b)
+    act._aborted = True
+    act.begin_command()
+    assert act.execute(ActionRequest("click"), coords=(1, 1)) is False  # kill ラッチは残る

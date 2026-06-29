@@ -18,6 +18,7 @@ class _Actuator:
 
     def aborted(self): return self._aborted
     def is_dry_run(self): return self._dry
+    def begin_command(self): pass
 
 
 async def _ground_ok(image_b64, *, instruction, region):
@@ -92,3 +93,26 @@ async def test_grounding_failure_reports():
     out = await _op(act, ground=_ground_none).handle(
         "その検索ボタンをクリックして", user_id=0)
     assert act.executed == [] and out.startswith("[操作失敗]")
+
+
+async def test_two_consecutive_harmless_commands_both_execute():
+    """同じ Operator インスタンスで連続2コマンド: 予算リセットにより両方が実行されること。"""
+    act = _Actuator()
+    op = _op(act, confirm=False)
+    await op.handle("その検索ボタンをクリックして", user_id=0)
+    await op.handle("その検索ボタンをクリックして", user_id=0)
+    assert len(act.executed) == 2
+
+
+async def test_demonstrative_uses_original_utterance_as_instruction():
+    """指示代名詞(target="")のとき、grounding に渡す instruction が元の発話になること。"""
+    recorded: list[str] = []
+
+    async def _ground_record(image_b64, *, instruction, region):
+        recorded.append(instruction)
+        return GroundResult(x=100, y=200, raw="click(100,200)")
+
+    act = _Actuator()
+    op = _op(act, ground=_ground_record, confirm=False)
+    await op.handle("ここをクリックして", user_id=0)
+    assert recorded == ["ここをクリックして"]

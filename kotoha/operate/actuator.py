@@ -80,8 +80,8 @@ class Actuator:
     def is_dry_run(self) -> bool:
         return self._dry_run
 
-    def reset(self) -> None:
-        self._aborted = False
+    def begin_command(self) -> None:
+        """次のコマンドのために動作カウントだけ戻す。kill ラッチ(_aborted)は保持する。"""
         self._count = 0
 
     def execute(self, action, *, coords) -> bool:

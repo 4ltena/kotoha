@@ -40,7 +40,7 @@ class Operator:
         self._confirm = confirm_destructive
         self._ttl = pending_ttl_s
         self._clock = clock
-        self._pending = {}   # user_id -> (ActionRequest, ts)
+        self._pending = {}   # user_id -> (ActionRequest, text, ts)
 
     def _rec(self, kind):
         if self._stats is not None:
@@ -60,7 +60,7 @@ class Operator:
 
     async def _handle(self, text, user_id):
         pend = self._pending.get(user_id)
-        if pend is not None and self._clock() - pend[1] > self._ttl:
+        if pend is not None and self._clock() - pend[2] > self._ttl:
             del self._pending[user_id]
             self._rec("expired")
             pend = None
@@ -70,11 +70,11 @@ class Operator:
                 self._rec("refused")
                 return "操作を取りやめた"
             if is_affirmative(text):
-                action, _ = pend
+                action, ptext, _ = pend
                 del self._pending[user_id]
                 if not app_allowed(self._get_foreground(), allowlist=self._cfg.operation_app_allowlist):
                     return "対象アプリが変わったため取りやめた"
-                return await self._run(action)
+                return await self._run(action, ptext)
             del self._pending[user_id]   # 肯定でも否定でもない: 破棄して新意図へ
 
         action = parse_intent(text, config=self._cfg)
@@ -88,12 +88,13 @@ class Operator:
             destructive_keywords=self._cfg.operation_destructive_keywords,
             hotkeys_always=self._cfg.operation_destructive_hotkeys_always,
         ):
-            self._pending[user_id] = (action, self._clock())
+            self._pending[user_id] = (action, text, self._clock())
             self._rec("confirmed_pending")
             return _confirm_prompt(action)
-        return await self._run(action)
+        return await self._run(action, text)
 
-    async def _run(self, action):
+    async def _run(self, action, instruction):
+        self._actuator.begin_command()
         cap = None
         try:
             cap = self._capture_region()
@@ -104,8 +105,9 @@ class Operator:
         image_b64, region = cap
         coords = None
         if action.kind in _NEEDS_GROUND:
+            inst = action.target or instruction or action.kind
             t0 = self._clock()
-            result = await self._ground(image_b64, instruction=action.target or action.kind, region=region)
+            result = await self._ground(image_b64, instruction=inst, region=region)
             if self._stats is not None:
                 self._stats.record_ground_ms((self._clock() - t0) * 1000)
             if result is None:
