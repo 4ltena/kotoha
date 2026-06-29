@@ -27,3 +27,7 @@ def test_allowlist_basename_lowercase_match():
     assert app_allowed("C:\\\\Program Files\\\\Chrome.exe", allowlist=("chrome.exe",)) is True
     assert app_allowed("/usr/bin/code", allowlist=("code",)) is True
     assert app_allowed("notepad.exe", allowlist=("chrome.exe",)) is False
+
+
+def test_app_allowed_none_foreground():
+    assert app_allowed(None, allowlist=("chrome.exe",)) is False

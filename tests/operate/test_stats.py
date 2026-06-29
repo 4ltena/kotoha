@@ -23,5 +23,6 @@ def test_summary_line_is_human_readable():
     s = OperationStats()
     s.record("intents")
     s.record("executed")
+    s.record("expired")
     line = s.summary_line()
-    assert "intents=1" in line and "exec=1" in line
+    assert "intents=1" in line and "exec=1" in line and "expired=1" in line

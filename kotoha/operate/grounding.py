@@ -87,12 +87,12 @@ async def ground_target(
     session=None のときは呼び出しごとに短命セッションを使い捨て、llama.cpp #17200
     （連続マルチモーダル要求の失敗）を回避する。
     """
-    full_prompt = f"{prompt}\n対象: {instruction}"
-    path, payload = build_vlm_payload(image_b64, prompt=full_prompt, model=model, api=api)
     own = session is None
-    if own:
-        session = aiohttp.ClientSession()
     try:
+        if own:
+            session = aiohttp.ClientSession()
+        full_prompt = f"{prompt}\n対象: {instruction}"
+        path, payload = build_vlm_payload(image_b64, prompt=full_prompt, model=model, api=api)
         timeout = aiohttp.ClientTimeout(total=timeout_s)
         async with session.post(f"{base_url}{path}", json=payload, timeout=timeout) as resp:
             resp.raise_for_status()
@@ -107,5 +107,5 @@ async def ground_target(
         logger.warning("grounding failed", exc_info=True)
         return None
     finally:
-        if own:
+        if own and session is not None:
             await session.close()

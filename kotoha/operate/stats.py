@@ -46,5 +46,5 @@ class OperationStats:
         return (
             f"intents={s['intents']} grounded={s['grounded']} exec={s['executed']} "
             f"confirm={s['confirmed_pending']} refused={s['refused']} "
-            f"aborted={s['aborted']} fail={fails}"
+            f"expired={s['expired']} aborted={s['aborted']} fail={fails}"
         )

@@ -5,7 +5,7 @@ def is_destructive(action, *, destructive_keywords, hotkeys_always) -> bool:
     """破壊的なら True。hotkey は hotkeys_always で常に True。保守的に過剰確認側へ倒す。"""
     if action.kind == "hotkey" and hotkeys_always:
         return True
-    hay = (action.target + " " + action.text).lower()
+    hay = ((action.target or "") + " " + (action.text or "")).lower()
     return any(kw.lower() in hay for kw in destructive_keywords)
 
 

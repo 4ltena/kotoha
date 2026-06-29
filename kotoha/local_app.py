@@ -332,6 +332,7 @@ async def run_local(config: Config) -> None:
 
         operator = None
         operation_stats = None
+        actuator = None
         if config.operation_enabled:
             import functools as _functools
             operation_stats = OperationStats()

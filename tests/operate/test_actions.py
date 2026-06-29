@@ -47,3 +47,7 @@ def test_affirmative_and_negation_priority():
     assert is_affirmative("うん") is True
     assert is_negative("やめて") is True
     assert is_affirmative("そうじゃない") is False   # 否定優先
+
+
+def test_page_up_scroll_positive_amount():
+    assert parse_intent("ページアップ", config=CFG).amount > 0

@@ -26,6 +26,7 @@ def _extract_target(prefix: str) -> str:
     for p in ("を", "の", "に", "へ"):
         if t.endswith(p):
             t = t[:-1]
+            break
     t = t.strip()
     if not t or t in _DEMONSTRATIVES:
         return ""
@@ -74,6 +75,6 @@ def is_negative(text) -> bool:
 
 def is_affirmative(text) -> bool:
     s = (text or "").strip().lower()
-    if is_negative(s):
+    if is_negative(text):
         return False
     return any(w in s for w in _AFF_WORDS)

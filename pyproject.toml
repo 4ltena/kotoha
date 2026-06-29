@@ -37,7 +37,7 @@ screen = [
 ]
 operate = ["pyautogui", "keyboard"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "soundfile>=0.12"]
-all = ["kotoha[voice,ml,local,screen]"]
+all = ["kotoha[voice,ml,local,screen,operate]"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

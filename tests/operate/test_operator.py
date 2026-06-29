@@ -116,3 +116,32 @@ async def test_demonstrative_uses_original_utterance_as_instruction():
     op = _op(act, ground=_ground_record, confirm=False)
     await op.handle("ここをクリックして", user_id=0)
     assert recorded == ["ここをクリックして"]
+
+
+async def test_pending_ttl_expiry_discards_destructive():
+    """TTL 切れ後に肯定応答しても pending が破棄され、実行されないこと。"""
+    now = [0.0]
+
+    def _clock():
+        return now[0]
+
+    act = _Actuator()
+    op = Operator(
+        ground=_ground_ok, capture_region=_cap, actuator=act, policy_cfg=CFG,
+        get_foreground=lambda: "chrome.exe",
+        pending_ttl_s=10.0,
+        clock=_clock,
+    )
+    # ターン1: 破壊的コマンドで確認待ち状態へ
+    first = await op.handle("送信ボタンをクリックして", user_id=0)
+    assert act.executed == []
+    assert first is not None and "確認" in first
+
+    # TTL を超えてクロックを進める
+    now[0] = 20.0
+
+    # ターン2: 肯定応答でも pending が TTL 切れにより破棄され、実行されない
+    second = await op.handle("うん", user_id=0)
+    assert act.executed == []   # 実行されていないこと
+    # "うん" は pending なし → parse_intent では None → handle は None を返す
+    assert second is None

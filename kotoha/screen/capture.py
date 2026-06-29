@@ -49,7 +49,7 @@ class MssCapturer:
             logger.warning("mss capture failed", exc_info=True)
             return None
 
-    def capture_with_region(self):
+    def capture_with_region(self) -> "tuple[str, Region] | None":
         """縮小済み base64 とプライマリモニタの実矩形 Region を返す。失敗は None。
 
         操作グラウンディングの座標写像に使う。操作機能は screen_capture_backend に
