@@ -1,13 +1,27 @@
+import base64
+import io
 import threading
 
 import pytest
+from PIL import Image
 
 from kotoha.screen.state import ScreenContext
 from kotoha.screen.perceiver import ScreenPerceiver
 
 
+def _frame_b64(color):
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color).save(buf, format="JPEG", quality=70)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+_UNSET = object()
+
+
 class _Capturer:
-    def __init__(self, value="IMGB64"): self.value = value; self.calls = 0
+    def __init__(self, value=_UNSET):
+        self.value = value if value is not _UNSET else _frame_b64((100, 100, 100))
+        self.calls = 0
     def capture(self):
         self.calls += 1
         return self.value
@@ -35,7 +49,8 @@ async def test_tick_updates_summary():
 
 async def test_identical_frame_skips_describe_but_keeps_fresh():
     ctx = _ctx()
-    cap = _Capturer(value="SAME")          # 毎回同じフレームを返す(静止画面)
+    same_frame = _frame_b64((100, 100, 100))
+    cap = _Capturer(value=same_frame)      # 毎回同じフレームを返す(静止画面)
     describe_calls = {"n": 0}
 
     async def counting_describe(image_b64):
@@ -118,7 +133,7 @@ class _ClosableCapturer(_Capturer):
 
 class _ThreadRecordingCapturer:
     def __init__(self):
-        self.value = "IMG"
+        self.value = _frame_b64((100, 100, 100))
         self.calls = 0
         self.thread_ident = None
 
@@ -224,8 +239,9 @@ async def test_stats_recorded_on_successful_describe():
 async def test_stats_skip_on_identical_frame():
     ctx = _ctx()
     st = _RecStats()
+    same_frame = _frame_b64((100, 100, 100))
     p = ScreenPerceiver(
-        capturer=_Capturer(value="SAME"), describe=_describe_factory("画面。"),
+        capturer=_Capturer(value=same_frame), describe=_describe_factory("画面。"),
         screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5, stats=st,
     )
     await p.tick()
@@ -248,3 +264,63 @@ async def test_stats_failure_on_describe_error():
     )
     assert await p.tick() is False
     assert ("fail", "vlm") in st.events
+
+
+class _SeqCapturer:
+    def __init__(self, colors):
+        self._frames = [_frame_b64(c) for c in colors]
+        self._i = 0
+
+    def capture(self):
+        f = self._frames[min(self._i, len(self._frames) - 1)]
+        self._i += 1
+        return f
+
+
+async def test_skips_describe_on_perceptually_similar_frame():
+    ctx = _ctx()
+    calls = []
+
+    async def describe(image_b64):
+        calls.append(image_b64)
+        return "画面。"
+
+    p = ScreenPerceiver(
+        capturer=_SeqCapturer([(120, 120, 120), (121, 121, 121)]),
+        describe=describe, screen_ctx=ctx,
+        normal_interval_s=4.0, realtime_interval_s=0.5, change_threshold=4,
+    )
+    await p.tick()   # 1枚目: describe
+    await p.tick()   # 2枚目: ほぼ同一 -> skip
+    assert len(calls) == 1
+
+
+async def test_describes_on_large_change():
+    ctx = _ctx()
+    calls = []
+
+    async def describe(image_b64):
+        calls.append(image_b64)
+        return "画面。"
+
+    split = Image.new("RGB", (64, 64), (0, 0, 0))
+    for x in range(32, 64):
+        for y in range(64):
+            split.putpixel((x, y), (255, 255, 255))
+    buf = io.BytesIO()
+    split.save(buf, format="JPEG", quality=70)
+    split_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    class _TwoFrames:
+        def __init__(self): self._i = 0
+        def capture(self):
+            self._i += 1
+            return _frame_b64((120, 120, 120)) if self._i == 1 else split_b64
+
+    p = ScreenPerceiver(
+        capturer=_TwoFrames(), describe=describe, screen_ctx=ctx,
+        normal_interval_s=4.0, realtime_interval_s=0.5, change_threshold=4,
+    )
+    await p.tick()
+    await p.tick()
+    assert len(calls) == 2

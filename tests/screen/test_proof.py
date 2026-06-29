@@ -1,12 +1,23 @@
+import base64
+import io
+
+from PIL import Image
+
 from kotoha.screen.proof import run_proof
 from kotoha.screen.stats import PerceptionStats
 from kotoha.screen.state import ScreenContext
 from kotoha.screen.perceiver import ScreenPerceiver
 
 
+def _frame_b64(color):
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color).save(buf, format="JPEG", quality=70)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 class _Cap:
     def capture(self):
-        return "IMG"
+        return _frame_b64((100, 100, 100))
 
 
 async def test_run_proof_prints_summary_and_stats_each_cycle():

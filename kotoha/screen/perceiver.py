@@ -9,6 +9,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from kotoha.screen.sanitize import normalize_summary
+from kotoha.screen.phash import dhash_b64, hamming
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,8 @@ class ScreenPerceiver:
         poll_s: float = 2.0,
         sleep=asyncio.sleep,
         stats=None,
+        change_threshold: int = 0,
+        get_foreground=None,
     ):
         self._capturer = capturer
         self._describe = describe          # async (image_b64) -> str
@@ -34,7 +37,9 @@ class ScreenPerceiver:
         self._poll_s = poll_s
         self._sleep = sleep
         self._stop = False
-        self._last_capture_b64 = None   # 直近に要約したフレーム。同一なら再要約しない
+        self._last_hash = None
+        self._change_threshold = change_threshold
+        self._get_foreground = get_foreground
         self._stats = stats
         # キャプチャ(mss/dxcam)はブロッキングで、会話ループと同じスレッドで実行すると
         # barge-in・TTS・再生を止める。単一ワーカーへ逃がす。max_workers=1 で
@@ -69,8 +74,15 @@ class ScreenPerceiver:
             return False
         if self._stats is not None:
             self._stats.record_capture((loop.time() - t0) * 1000)
-        if image_b64 == self._last_capture_b64:
-            # 画面が変わっていない: 重い VLM を呼ばず、要約の鮮度だけ更新する。
+        try:
+            h = dhash_b64(image_b64)
+        except Exception:
+            logger.warning("dhash failed; skipping frame", exc_info=True)
+            if self._stats is not None:
+                self._stats.record_skip()
+            return False
+        if self._last_hash is not None and hamming(h, self._last_hash) <= self._change_threshold:
+            # 画面が実質変わっていない: 重い VLM を呼ばず、要約の鮮度だけ更新する。
             self._screen_ctx.touch()
             if self._stats is not None:
                 self._stats.record_skip()
@@ -87,7 +99,7 @@ class ScreenPerceiver:
             self._stats.record_describe((loop.time() - t1) * 1000)
         summary = normalize_summary(summary)   # 装飾除去・最大2文へ均す
         if summary:
-            self._last_capture_b64 = image_b64
+            self._last_hash = h
             self._screen_ctx.set_summary(summary)
             if self._stats is not None:
                 self._stats.record_summary_update()
