@@ -72,6 +72,8 @@ async def _main(args) -> int:
             normal_interval_s=config.screen_normal_interval_s,
             realtime_interval_s=config.screen_game_realtime_interval_s,
             poll_s=config.screen_game_poll_s, stats=stats,
+            change_threshold=config.screen_change_hash_threshold,
+            get_foreground=lambda: (get_foreground_info() or {}).get("process", ""),
         )
         if args.duration:
             deadline = asyncio.get_running_loop().time() + args.duration
