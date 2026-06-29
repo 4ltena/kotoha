@@ -31,3 +31,8 @@ def test_allowlist_basename_lowercase_match():
 
 def test_app_allowed_none_foreground():
     assert app_allowed(None, allowlist=("chrome.exe",)) is False
+
+
+def test_drag_to_trash_is_destructive():
+    a = ActionRequest("drag", target="ファイル", to_target="ゴミ箱")
+    assert is_destructive(a, destructive_keywords=("ゴミ箱",), hotkeys_always=True) is True
