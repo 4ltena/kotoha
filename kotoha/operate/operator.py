@@ -7,7 +7,7 @@ None。best-effort で例外を声ループへ上げない。直列化された�
 import logging
 import time
 
-from kotoha.operate.actions import is_affirmative, is_negative, parse_chain
+from kotoha.operate.actions import is_affirmative, is_negative, parse_chain, parse_intent
 from kotoha.operate.policy import app_allowed, is_destructive
 
 logger = logging.getLogger(__name__)
@@ -87,13 +87,18 @@ class Operator:
                 return await self._execute_actions(actions, ptext)
             del self._pending[user_id]   # 中立応答: 破棄して新意図へ
 
-        actions = parse_chain(text, config=self._cfg)
+        if self._cfg.operation_max_actions_per_command > 1:
+            actions = parse_chain(text, config=self._cfg)
+        else:
+            a = parse_intent(text, config=self._cfg)
+            actions = [a] if a is not None else []
         if not actions:
             return None
         self._rec("intents")
         if not app_allowed(self._get_foreground(), allowlist=self._cfg.operation_app_allowlist):
             return self._fail("allowlist", "許可外アプリ")
-        if self._confirm and any(self._destructive(a) for a in actions):
+        destructive = any(self._destructive(a) for a in actions) or self._text_has_destructive(text)
+        if self._confirm and destructive:
             self._pending[user_id] = (actions, text, self._clock())
             self._rec("confirmed_pending")
             return _confirm_prompt(actions[0]) if len(actions) == 1 else _confirm_prompt_chain(actions)
@@ -106,6 +111,10 @@ class Operator:
             hotkeys_always=self._cfg.operation_destructive_hotkeys_always,
         )
 
+    def _text_has_destructive(self, text) -> bool:
+        hay = (text or "").lower()
+        return any(kw.lower() in hay for kw in self._cfg.operation_destructive_keywords)
+
     def _safe_capture(self):
         try:
             return self._capture_region()
@@ -113,40 +122,48 @@ class Operator:
             return None
 
     async def _ground_checked(self, image_b64, instruction, region):
-        """grounding して実OS座標を返す。self_check 時は2回一致を要求し、不一致は None。"""
+        """grounding して (座標, reason) を返す。reason は "" / "notfound" / "ambiguous"。
+        self_check 時は2回一致を要求し、不一致は "ambiguous"。latency は全呼び出しを通算。"""
         t0 = self._clock()
         r1 = await self._ground(image_b64, instruction=instruction, region=region)
+        if r1 is None:
+            if self._stats is not None:
+                self._stats.record_ground_ms((self._clock() - t0) * 1000)
+            return None, "notfound"
+        if not getattr(self._cfg, "operation_grounding_self_check", False):
+            if self._stats is not None:
+                self._stats.record_ground_ms((self._clock() - t0) * 1000)
+            self._rec("grounded")
+            return (r1.x, r1.y), ""
+        r2 = await self._ground(image_b64, instruction=instruction, region=region)
         if self._stats is not None:
             self._stats.record_ground_ms((self._clock() - t0) * 1000)
-        if r1 is None:
-            return None
-        if not getattr(self._cfg, "operation_grounding_self_check", False):
-            self._rec("grounded")
-            return (r1.x, r1.y)
-        r2 = await self._ground(image_b64, instruction=instruction, region=region)
         if r2 is None:
-            return None
+            return None, "notfound"
         tol = self._cfg.operation_grounding_tolerance_px
         if max(abs(r1.x - r2.x), abs(r1.y - r2.y)) > tol:
-            return None
+            return None, "ambiguous"
         self._rec("grounded")
-        return (r1.x, r1.y)
+        return (r1.x, r1.y), ""
 
     async def _run_one(self, action, instruction, image_b64, region):
         """1ステップ。(ok, 文) を返す。grounding 失敗・kill・execute 失敗は (False, 失敗文)。"""
         coords = None
         coords_to = None
         if action.kind in _NEEDS_GROUND:
-            coords = await self._ground_checked(image_b64, action.target or instruction or action.kind, region)
+            coords, reason = await self._ground_checked(image_b64, action.target or instruction or action.kind, region)
             if coords is None:
-                return False, self._fail("ground", "対象が見つからない")
+                msg = "対象が曖昧" if reason == "ambiguous" else "対象が見つからない"
+                return False, self._fail("ground", msg)
         elif action.kind == "drag":
-            coords = await self._ground_checked(image_b64, action.target or instruction or action.kind, region)
+            coords, reason = await self._ground_checked(image_b64, action.target or instruction or action.kind, region)
             if coords is None:
-                return False, self._fail("ground", "対象が見つからない")
-            coords_to = await self._ground_checked(image_b64, action.to_target or action.kind, region)
+                msg = "対象が曖昧" if reason == "ambiguous" else "対象が見つからない"
+                return False, self._fail("ground", msg)
+            coords_to, reason_to = await self._ground_checked(image_b64, action.to_target or action.kind, region)
             if coords_to is None:
-                return False, self._fail("ground", "対象が見つからない")
+                msg = "対象が曖昧" if reason_to == "ambiguous" else "対象が見つからない"
+                return False, self._fail("ground", msg)
         ok = self._actuator.execute(action, coords=coords, coords_to=coords_to)
         if self._actuator.aborted():
             self._rec("aborted")

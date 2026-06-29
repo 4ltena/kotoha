@@ -226,3 +226,47 @@ async def test_self_check_rejects_inconsistent_grounding():
                   get_foreground=lambda: "chrome.exe")
     out = await op.handle("ボタンをクリックして", user_id=0)
     assert act.executed == [] and out.startswith("[操作失敗]")   # 不一致で棄却
+
+
+# ---------------------------------------------------------------------------
+# Regression: FIX A / FIX B
+# ---------------------------------------------------------------------------
+
+async def test_default_max_one_does_not_split_on_comma():
+    """max_actions=1（デフォルト）のとき、発話をコンマで分割しない。
+    "送信、ボタンを押して" は全体1意図として解釈され、破壊的キーワード含む → 確認要求。"""
+    act = _Actuator()
+    op = _op(act)   # CFG の operation_max_actions_per_command == 1
+    out = await op.handle("送信、ボタンを押して", user_id=0)
+    assert act.executed == []          # 確認前なので未実行
+    assert "確認" in out               # コンマで分割されず破壊的と判断された
+
+
+async def test_chain_raw_text_destructive_still_confirms():
+    """max_actions=2 の連鎖分割でも、raw テキストに破壊的キーワードがあれば確認を求める。
+    "送信、ボタンを押して" を分割すると "送信"→None (ドロップ) + "ボタンを押して"→click(非破壊的)
+    になるが、raw テキストに "送信" が含まれるため confirm が発火する。"""
+    cfg = Config(operation_app_allowlist=("chrome.exe",), operation_max_actions_per_command=2)
+    act = _Actuator()
+    op = Operator(ground=_ground_ok, capture_region=_cap, actuator=act, policy_cfg=cfg,
+                  get_foreground=lambda: "chrome.exe")
+    out = await op.handle("送信、ボタンを押して", user_id=0)
+    assert act.executed == []          # 確認前なので未実行
+    assert "確認" in out               # raw テキストの破壊的キーワードで confirm
+
+
+async def test_self_check_reject_says_ambiguous():
+    """self_check で2回の grounding が不一致のとき、失敗メッセージに "曖昧" が含まれる。"""
+    cfg = Config(operation_app_allowlist=("chrome.exe",),
+                 operation_grounding_self_check=True, operation_grounding_tolerance_px=10)
+    act = _Actuator()
+    seq = [GroundResult(x=100, y=100, raw=""), GroundResult(x=200, y=100, raw="")]
+
+    async def ground(image_b64, *, instruction, region):
+        return seq.pop(0)
+
+    op = Operator(ground=ground, capture_region=_cap, actuator=act, policy_cfg=cfg,
+                  get_foreground=lambda: "chrome.exe")
+    out = await op.handle("ボタンをクリックして", user_id=0)
+    assert act.executed == []
+    assert "曖昧" in out              # "対象が曖昧" を含むこと
