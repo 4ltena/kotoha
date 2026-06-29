@@ -145,3 +145,43 @@ async def test_diagnose_screen_capture_failure_is_caught():
 
     result = await diagnose_screen(cfg, session=_OkSession(), capture_probe=boom)
     assert result["capture_ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# diagnose_operation tests
+# ---------------------------------------------------------------------------
+
+async def test_diagnose_operation_none_when_disabled():
+    from kotoha.config import Config
+    from kotoha.diagnostics import diagnose_operation
+
+    class _OkSession:
+        def get(self, url):
+            class _R:
+                status = 200
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): return False
+            return _R()
+
+    cfg = Config(operation_enabled=False)
+    assert await diagnose_operation(cfg, session=_OkSession()) is None
+
+
+async def test_diagnose_operation_reports_when_enabled():
+    from kotoha.config import Config
+    from kotoha.diagnostics import diagnose_operation
+
+    class _OkSession:
+        def get(self, url):
+            class _R:
+                status = 200
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): return False
+            return _R()
+
+    cfg = Config(operation_enabled=True, grounding_api="ollama")
+    result = await diagnose_operation(
+        cfg, session=_OkSession(), foreground_probe=lambda: "chrome.exe")
+    assert result["grounding_ok"] is True
+    assert result["foreground_ok"] is True
+    assert result["dry_run"] is True

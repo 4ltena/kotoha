@@ -72,6 +72,29 @@ async def diagnose_screen(config, *, session, capture_probe=None) -> dict | None
     return {"vlm_url": vlm_url, "vlm_ok": vlm_ok, "capture_ok": capture_ok}
 
 
+async def diagnose_operation(config, *, session, foreground_probe=None) -> dict | None:
+    """操作レディネスを返す。無効なら None。grounding 到達・前面取得・dry-run 状態を見る。"""
+    if not getattr(config, "operation_enabled", False):
+        return None
+    g_url = config.grounding_url or config.vlm_perception_url or config.ollama_url
+    grounding_ok = await probe_llm_endpoint(session, g_url, api=config.grounding_api)
+    if foreground_probe is None:
+        def foreground_probe():
+            from kotoha.screen.detector import get_foreground_info
+            return get_foreground_info()
+    try:
+        foreground_ok = bool(foreground_probe())
+    except Exception:
+        foreground_ok = False
+    return {
+        "grounding_url": g_url,
+        "grounding_ok": grounding_ok,
+        "foreground_ok": foreground_ok,
+        "dry_run": config.operation_dry_run,
+        "allowlist": config.operation_app_allowlist,
+    }
+
+
 def format_report(result: dict) -> str:
     """診断結果を人間可読のレポート文字列にする。"""
     lines = [f"[ollama]    {'OK' if result['ollama'] else 'DOWN'}"]
@@ -100,10 +123,17 @@ async def run_diagnostics(config: Config) -> int:
     async with aiohttp.ClientSession(timeout=timeout) as session:
         result = await diagnose(config, session=session)
         screen = await diagnose_screen(config, session=session)
+        operation = await diagnose_operation(config, session=session)
     print(format_report(result))
     if screen is not None:
         print(f"[screen]    vlm({screen['vlm_url']}): {'OK' if screen['vlm_ok'] else 'DOWN'}, "
               f"capture: {'OK' if screen['capture_ok'] else 'FAIL'}")
+    if operation is not None:
+        armed = "ARMED" if not operation["dry_run"] else "dry-run"
+        print(f"[operate]   grounding({operation['grounding_url']}): "
+              f"{'OK' if operation['grounding_ok'] else 'DOWN'}, "
+              f"foreground: {'OK' if operation['foreground_ok'] else 'FAIL'}, "
+              f"{armed}, allowlist={operation['allowlist'] or '(empty=deny all)'}")
 
     print("\n[audio devices]")
     try:

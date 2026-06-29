@@ -23,6 +23,10 @@ from kotoha.screen.detector import GameModeLoop
 from kotoha.screen.perceiver import ScreenPerceiver
 from kotoha.screen.state import ScreenContext
 from kotoha.screen.stats import PerceptionStats
+from kotoha.operate.actuator import Actuator
+from kotoha.operate.grounding import ground_target
+from kotoha.operate.operator import Operator
+from kotoha.operate.stats import OperationStats
 from kotoha.tools.registry import api_search as _api_search
 from kotoha.relationship import RelationshipStore, RelationshipManager
 from kotoha.voice.mic import MicCapture
@@ -74,6 +78,7 @@ def build_orchestrator(
     memory=None,
     relationship=None,
     screen_context=None,
+    operator=None,
 ):
     """設定と長命セッションから Orchestrator を結線する(単体テスト可能)。
 
@@ -143,6 +148,7 @@ def build_orchestrator(
         clock=_clock_for_config(config),
         place=_display_place(config),
         screen_context=screen_context,
+        operator=operator,
     )
 
 
@@ -324,6 +330,35 @@ async def run_local(config: Config) -> None:
             print("[screen] perception enabled "
                   f"(backend={config.screen_capture_backend}, vlm={config.vlm_perception_model})")
 
+        operator = None
+        operation_stats = None
+        if config.operation_enabled:
+            import functools as _functools
+            operation_stats = OperationStats()
+            g_url = config.grounding_url or config.vlm_perception_url or config.ollama_url
+            ground = _functools.partial(
+                ground_target, model=config.grounding_model, base_url=g_url,
+                api=config.grounding_api, session=None,
+                timeout_s=config.grounding_timeout_s, prompt=config.grounding_prompt,
+            )
+            op_capturer = MssCapturer(max_long_edge=config.screen_capture_max_long_edge)
+            actuator = Actuator(
+                dry_run=config.operation_dry_run,
+                kill_hotkey=config.operation_kill_hotkey,
+                max_actions=config.operation_max_actions_per_command,
+            )
+            from kotoha.screen.detector import get_foreground_info
+            operator = Operator(
+                ground=ground, capture_region=op_capturer.capture_with_region,
+                actuator=actuator, policy_cfg=config,
+                get_foreground=lambda: (get_foreground_info() or {}).get("process", ""),
+                stats=operation_stats, confirm_destructive=config.operation_confirm_destructive,
+                pending_ttl_s=config.operation_pending_ttl_s,
+            )
+            armed = "ARMED" if not config.operation_dry_run else "dry-run"
+            print(f"[operate] enabled (grounding={config.grounding_model}, {armed}, "
+                  f"allowlist={config.operation_app_allowlist or '(empty=deny all)'})")
+
         memory = None
         if config.memory_enabled:
             store = MemoryStore.load(config.memory_path)
@@ -393,6 +428,7 @@ async def run_local(config: Config) -> None:
             relationship=relationship,
             player=player,
             screen_context=screen_ctx,
+            operator=operator,
         )
         # ウォームアップ: 各ステージの初回コールドコスト(モデルのVRAMロード/カーネル初期化)を
         # 会話開始前に消化し、最初の応答の遅延を無くす。いずれも失敗しても致命ではない。
@@ -426,6 +462,10 @@ async def run_local(config: Config) -> None:
                 await asyncio.gather(*screen_tasks, return_exceptions=True)
             if screen_stats is not None:
                 print("[screen] stats: " + screen_stats.summary_line())
+            if operator is not None:
+                actuator.close()
+            if operation_stats is not None:
+                print("[operate] stats: " + operation_stats.summary_line())
             if mic is not None:
                 mic.stop()
             if remote_server is not None:
