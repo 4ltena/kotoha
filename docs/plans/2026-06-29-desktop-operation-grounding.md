@@ -585,7 +585,7 @@ Expected: FAIL（`ModuleNotFoundError: kotoha.operate.actions`）
 import re
 from dataclasses import dataclass
 
-_DEMONSTRATIVES = ("ここ", "そこ", "あそこ", "これ", "それ", "あれ", "ここ")
+_DEMONSTRATIVES = ("ここ", "そこ", "あそこ", "これ", "それ", "あれ")
 _CLICK_WORDS = ("クリック", "押して", "選んで", "タップ")
 _DOUBLE_WORDS = ("ダブルクリック", "開いて", "ひらいて")
 _QUOTED = re.compile(r"[「『](.+?)[」』]")
@@ -1025,8 +1025,12 @@ class _Actuator:
     def is_dry_run(self): return self._dry
 
 
-def _ground_ok(image_b64, *, instruction, region):
+async def _ground_ok(image_b64, *, instruction, region):
     return GroundResult(x=100, y=200, raw="click(100,200)")
+
+
+async def _ground_none(image_b64, *, instruction, region):
+    return None
 
 
 def _cap():
@@ -1090,7 +1094,7 @@ async def test_confirm_rechecks_allowlist_on_app_change():
 
 async def test_grounding_failure_reports():
     act = _Actuator()
-    out = await _op(act, ground=lambda *a, **k: None).handle(
+    out = await _op(act, ground=_ground_none).handle(
         "その検索ボタンをクリックして", user_id=0)
     assert act.executed == [] and out.startswith("[操作失敗]")
 ```
