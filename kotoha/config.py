@@ -115,6 +115,31 @@ class Config:
         "記号やMarkdown装飾(**、#、`、箇条書きなど)は使わず、プレーンな文だけで書く。"
     )
     aux_llm_url: str = ""                           # 非リアルタイムLLM のURL。空なら ollama_url
+    # --- デスクトップ操作グラウンディング (docs/specs/2026-06-29-desktop-operation-grounding-design.md) ---
+    operation_enabled: bool = False              # 既定OFFのオプトイン
+    operation_dry_run: bool = True               # 既定は可視化のみ。falseで実作動(arming)
+    operation_app_allowlist: tuple = ()          # 空=全拒否。許可する前面プロセス名
+    operation_confirm_destructive: bool = True   # 破壊操作は2ターン音声確認
+    operation_destructive_keywords: tuple = (
+        "送信", "削除", "消", "購入", "買", "注文", "支払", "送金",
+        "投稿", "公開", "閉じ", "破棄", "リセット", "フォーマット", "アンインストール",
+    )
+    operation_destructive_hotkeys_always: bool = True
+    operation_kill_hotkey: str = "ctrl+alt+q"
+    operation_max_actions_per_command: int = 1
+    operation_pending_ttl_s: float = 60.0
+    hotkey_map: tuple = (
+        ("保存", "ctrl+s"), ("元に戻す", "ctrl+z"), ("コピー", "ctrl+c"),
+        ("貼り付け", "ctrl+v"), ("全選択", "ctrl+a"),
+    )
+    grounding_url: str = ""                       # 空なら vlm_perception_url→ollama_url
+    grounding_model: str = "holo2-8b"
+    grounding_api: str = "openai"
+    grounding_timeout_s: float = 30.0
+    grounding_prompt: str = (
+        "次の画面のスクリーンショットを見て、指示された UI 要素のクリック点を求めて。"
+        "座標は画像に対して x, y それぞれ 0〜1000 で正規化した整数で 1 組だけ返す。"
+    )
 
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -129,6 +154,9 @@ _ENV_STR_FIELDS = (
     ("SCREEN_CAPTURE_BACKEND", "screen_capture_backend"),
     ("LOCAL_TIMEZONE", "local_timezone"),
     ("KOTOHA_PLACE", "local_place"),
+    ("GROUNDING_URL", "grounding_url"),
+    ("GROUNDING_MODEL", "grounding_model"),
+    ("GROUNDING_API", "grounding_api"),
 )
 
 
@@ -148,4 +176,19 @@ def build_config(env=None) -> "Config":
     flag = env.get("SCREEN_PERCEPTION_ENABLED")
     if flag is not None and flag != "":
         overrides["screen_perception_enabled"] = flag.strip().lower() in _TRUE
+    for env_key, field in (("OPERATION_ENABLED", "operation_enabled"),
+                           ("OPERATION_DRY_RUN", "operation_dry_run")):
+        v = env.get(env_key)
+        if v is not None and v != "":
+            overrides[field] = v.strip().lower() in _TRUE
+    allow = env.get("OPERATION_APP_ALLOWLIST")
+    if allow is not None and allow != "":
+        overrides["operation_app_allowlist"] = tuple(
+            s.strip() for s in allow.split(",") if s.strip()
+        )
+    for env_key, field in (("GROUNDING_TIMEOUT_S", "grounding_timeout_s"),
+                           ("OPERATION_PENDING_TTL_S", "operation_pending_ttl_s")):
+        v = env.get(env_key)
+        if v is not None and v != "":
+            overrides[field] = float(v)
     return replace(Config(), **overrides)

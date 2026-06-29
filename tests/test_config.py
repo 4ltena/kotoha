@@ -1,5 +1,5 @@
 from kotoha import config
-from kotoha.config import Config
+from kotoha.config import Config, build_config
 
 
 def test_audio_constants():
@@ -152,3 +152,28 @@ def test_build_config_bool_parsing(monkeypatch):
     assert build_config().screen_perception_enabled is True
     monkeypatch.setenv("SCREEN_PERCEPTION_ENABLED", "")   # 空はデフォルト維持
     assert build_config().screen_perception_enabled is False
+
+
+def test_operation_defaults_are_safe():
+    c = Config()
+    assert c.operation_enabled is False
+    assert c.operation_dry_run is True
+    assert c.operation_app_allowlist == ()
+    assert c.grounding_model == "holo2-8b"
+
+
+def test_build_config_reads_operation_and_grounding_env():
+    env = {
+        "OPERATION_ENABLED": "true",
+        "OPERATION_DRY_RUN": "false",
+        "OPERATION_APP_ALLOWLIST": "chrome.exe, code.exe",
+        "GROUNDING_URL": "http://localhost:11436",
+        "GROUNDING_MODEL": "holo2-8b",
+        "GROUNDING_TIMEOUT_S": "45",
+    }
+    c = build_config(env=env)
+    assert c.operation_enabled is True
+    assert c.operation_dry_run is False
+    assert c.operation_app_allowlist == ("chrome.exe", "code.exe")
+    assert c.grounding_url == "http://localhost:11436"
+    assert c.grounding_timeout_s == 45.0
