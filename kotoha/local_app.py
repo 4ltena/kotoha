@@ -316,11 +316,14 @@ async def run_local(config: Config) -> None:
                 session=session,
                 timeout_s=config.vlm_perception_timeout_s,
             )
+            from kotoha.screen.detector import get_foreground_info
             perceiver = ScreenPerceiver(
                 capturer=capturer, describe=describe, screen_ctx=screen_ctx,
                 normal_interval_s=config.screen_normal_interval_s,
                 realtime_interval_s=config.screen_game_realtime_interval_s,
                 poll_s=config.screen_game_poll_s, stats=screen_stats,
+                change_threshold=config.screen_change_hash_threshold,
+                get_foreground=lambda: (get_foreground_info() or {}).get("process", ""),
             )
             game_loop = GameModeLoop(screen_ctx=screen_ctx, config=config)
             screen_tasks = [

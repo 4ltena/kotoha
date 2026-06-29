@@ -324,3 +324,42 @@ async def test_describes_on_large_change():
     await p.tick()
     await p.tick()
     assert len(calls) == 2
+
+
+async def test_passes_foreground_app_to_set_summary():
+    recorded = {}
+
+    class _Ctx:
+        mode = "normal"
+        def set_summary(self, text, app=""): recorded["app"] = app
+        def touch(self): pass
+
+    async def describe(image_b64): return "画面。"
+
+    p = ScreenPerceiver(
+        capturer=_Capturer(), describe=describe, screen_ctx=_Ctx(),
+        normal_interval_s=4.0, realtime_interval_s=0.5,
+        get_foreground=lambda: "code.exe",
+    )
+    await p.tick()
+    assert recorded["app"] == "code.exe"
+
+
+async def test_foreground_exception_falls_back_to_empty_app():
+    recorded = {}
+
+    class _Ctx:
+        mode = "normal"
+        def set_summary(self, text, app=""): recorded["app"] = app
+        def touch(self): pass
+
+    async def describe(image_b64): return "画面。"
+
+    def boom(): raise RuntimeError("no fg")
+
+    p = ScreenPerceiver(
+        capturer=_Capturer(), describe=describe, screen_ctx=_Ctx(),
+        normal_interval_s=4.0, realtime_interval_s=0.5, get_foreground=boom,
+    )
+    await p.tick()
+    assert recorded["app"] == ""

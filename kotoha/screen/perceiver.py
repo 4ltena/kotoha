@@ -100,7 +100,14 @@ class ScreenPerceiver:
         summary = normalize_summary(summary)   # 装飾除去・最大2文へ均す
         if summary:
             self._last_hash = h
-            self._screen_ctx.set_summary(summary)
+            app = ""
+            if self._get_foreground is not None:
+                try:
+                    app = self._get_foreground() or ""
+                except Exception:
+                    logger.warning("get_foreground failed", exc_info=True)
+                    app = ""
+            self._screen_ctx.set_summary(summary, app=app)
             if self._stats is not None:
                 self._stats.record_summary_update()
             return True
