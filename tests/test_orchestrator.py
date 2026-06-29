@@ -493,3 +493,36 @@ async def test_no_screen_context_is_fine():
     )
     await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
     assert captured[0] is not None   # 落ちずに通る
+
+
+async def test_operator_context_injected_before_llm():
+    captured = []
+
+    def llm(messages, *, model):
+        captured.append([dict(m) for m in messages])
+
+        async def gen():
+            yield "はい。"
+        return gen()
+
+    async def tts(text): return b""
+
+    class _Tr:
+        def transcribe(self, audio): return "その検索ボタンをクリックして"
+
+    class _Player:
+        def is_playing(self): return False
+        def stop(self): pass
+        async def play_and_wait(self, wav): return True
+
+    class _Op:
+        async def handle(self, text, *, user_id):
+            return "（検索ボタンを操作した）"
+
+    orch = Orchestrator(
+        transcriber=_Tr(), llm_stream=llm, tts=tts, player=_Player(),
+        model="m", vad_factory=lambda: object(), persona=persona, operator=_Op(),
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    sys_contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert any("検索ボタンを操作した" in c for c in sys_contents)

@@ -115,6 +115,7 @@ class Orchestrator:
         clock=datetime.now,
         place: str = "",
         screen_context=None,
+        operator=None,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -145,6 +146,7 @@ class Orchestrator:
         self._clock = clock
         self._place = place
         self._screen_context = screen_context   # 最新の画面要約を毎ターン注入(任意)
+        self.operator = operator   # 操作グラウンディング前段プロバイダ(任意)
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -261,6 +263,22 @@ class Orchestrator:
                     "content": (
                         "【画面の様子】\n" + summary
                         + "\n画面の話は、聞かれたときや明らかに関係するときだけ自然に触れる。"
+                    ),
+                })
+        # 操作グラウンディング: 前段で意図を解釈・実行し、結果文脈を注入する(best-effort・任意)。
+        if self.operator is not None:
+            try:
+                op_ctx = await self.operator.handle(text, user_id=user_id)
+            except Exception:
+                logger.exception("operator failed")
+                op_ctx = None
+            if op_ctx:
+                logger.info("operation: %s", op_ctx)
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": (
+                        "【画面操作の結果】\n" + op_ctx
+                        + "\nこの結果を踏まえ、操作の成否を短く自然に伝える。失敗なら必ずそれを伝える。"
                     ),
                 })
         self._events.state("thinking")
