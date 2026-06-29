@@ -14,12 +14,14 @@ class ScreenContext:
         self._clock = clock
         self._lock = threading.Lock()
         self._summary = ""
+        self._app = ""
         self._ts = None
         self._mode = "normal"
 
-    def set_summary(self, text: str) -> None:
+    def set_summary(self, text: str, app: str = "") -> None:
         with self._lock:
             self._summary = (text or "").strip()
+            self._app = (app or "").strip()
             self._ts = self._clock()
 
     def touch(self) -> None:
@@ -39,6 +41,15 @@ class ScreenContext:
             if (self._clock() - self._ts) > self._max_age:
                 return None
             return self._summary
+
+    def get_app(self) -> str:
+        """有効な最新要約があるときの前面アプリ名。無効・期限切れ・未設定は ""。"""
+        with self._lock:
+            if not self._summary or self._ts is None:
+                return ""
+            if (self._clock() - self._ts) > self._max_age:
+                return ""
+            return self._app
 
     def set_mode(self, mode: str) -> None:
         with self._lock:

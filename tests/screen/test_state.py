@@ -51,3 +51,25 @@ def test_mode_and_background_gate():
     assert ctx.background_llm_allowed() is False
     ctx.set_mode("game_realtime")
     assert ctx.background_llm_allowed() is True
+
+
+def test_set_summary_keeps_app():
+    ctx = ScreenContext(summary_max_age_s=1e9, clock=lambda: 0.0)
+    ctx.set_summary("メモを書いている。", app="notepad.exe")
+    assert ctx.get_summary() == "メモを書いている。"
+    assert ctx.get_app() == "notepad.exe"
+
+
+def test_get_app_empty_when_summary_expired():
+    t = {"now": 0.0}
+    ctx = ScreenContext(summary_max_age_s=10.0, clock=lambda: t["now"])
+    ctx.set_summary("x", app="chrome.exe")
+    t["now"] = 100.0   # 期限切れ
+    assert ctx.get_summary() is None
+    assert ctx.get_app() == ""
+
+
+def test_get_app_empty_by_default():
+    ctx = ScreenContext(summary_max_age_s=1e9, clock=lambda: 0.0)
+    ctx.set_summary("x")
+    assert ctx.get_app() == ""
