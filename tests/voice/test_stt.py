@@ -35,6 +35,29 @@ def test_transcribe_empty_segments_returns_empty_string():
     assert Transcriber(_Empty()).transcribe(np.zeros(16000, dtype=np.float32)) == ""
 
 
+def test_transcribe_drops_high_no_speech_prob_segment():
+    class _S:
+        def __init__(self, text, nsp):
+            self.text = text
+            self.no_speech_prob = nsp
+
+    class _M:
+        def transcribe(self, audio, **kwargs):
+            return iter([_S("(雑音)", 0.95), _S("こんにちは", 0.05)]), object()
+
+    t = Transcriber(_M(), no_speech_threshold=0.6)
+    assert t.transcribe(np.zeros(16000, dtype=np.float32)) == "こんにちは"
+
+
+def test_transcribe_blocks_known_hallucination_phrase():
+    class _M:
+        def transcribe(self, audio, **kwargs):
+            return iter([_Seg("ご視聴ありがとうございました")]), object()
+
+    t = Transcriber(_M(), hallucination_blocklist=("ご視聴ありがとうございました",))
+    assert t.transcribe(np.zeros(16000, dtype=np.float32)) == ""
+
+
 @pytest.mark.integration
 def test_real_whisper_transcribes_silence_to_str():
     pytest.importorskip("faster_whisper")

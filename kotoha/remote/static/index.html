@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>kotoha</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: linear-gradient(#1b2030, #0d0f16); }
+  #c { display: block; width: 100vw; height: 100vh; }
+  #panel { position: fixed; left: 0; right: 0; bottom: 0; padding: 1rem;
+    display: grid; place-items: center; gap: 0.5rem;
+    font-family: system-ui, sans-serif; color: #eee; }
+  button { font-size: 1.1rem; padding: 0.7rem 1.5rem; border: none;
+    border-radius: 0.6rem; background: #4c6ef5; color: #fff; cursor: pointer; }
+  #status { opacity: 0.85; font-size: 0.9rem; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "/static/vendor/three.module.js",
+  "@pixiv/three-vrm": "/static/vendor/three-vrm.module.js"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <button id="connect">接続して話す</button>
+  <div id="status">未接続</div>
+</div>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "/static/vendor/jsm/loaders/GLTFLoader.js";
+import { VRMLoaderPlugin, VRMUtils, VRMHumanBoneName } from "@pixiv/three-vrm";
+
+const statusEl = document.getElementById("status");
+const btn = document.getElementById("connect");
+const setStatus = (s) => { statusEl.textContent = s; };
+
+// ---- three.js シーン ----
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
+// 少し引いて全身が画面に収まるように(近すぎてはみ出していた)。
+camera.position.set(0, 1.0, 2.7);
+camera.lookAt(0, 0.95, 0);
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+const dir = new THREE.DirectionalLight(0xffffff, 1.3);
+dir.position.set(1, 2, 2);
+scene.add(dir);
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+
+let vrm = null;
+const loader = new GLTFLoader();
+loader.register((p) => new VRMLoaderPlugin(p));
+loader.load(
+  "/static/assets/character.vrm",
+  (gltf) => {
+    vrm = gltf.userData.vrm;
+    VRMUtils.rotateVRM0(vrm);            // VRM0 を +Z 向きに(VRM1 は無効果)
+    scene.add(vrm.scene);
+    relaxArms(vrm);                      // T ポーズ(腕を横)を自然に下ろす
+    setStatus("準備完了。接続して話してください");
+  },
+  undefined,
+  (e) => setStatus("VRM 読込失敗: " + e)
+);
+
+function relaxArms(vrm) {
+  const h = vrm.humanoid;
+  if (!h) return;
+  const set = (name, x, z) => {
+    const n = h.getNormalizedBoneNode(name);
+    if (n) { n.rotation.x = x; n.rotation.z = z; }
+  };
+  // 腕を体側へ下ろす。左右で z の符号が逆。このモデルでは左+ / 右- で下がる。
+  set(VRMHumanBoneName.LeftUpperArm, 0.05, 1.1);
+  set(VRMHumanBoneName.RightUpperArm, 0.05, -1.1);
+  set(VRMHumanBoneName.LeftLowerArm, 0.0, 0.15);
+  set(VRMHumanBoneName.RightLowerArm, 0.0, -0.15);
+}
+
+// ---- 口パク用の解析(再生音声の振幅) ----
+let analyser = null, timeData = null;
+function lipValue() {
+  if (!analyser) return 0;
+  analyser.getByteTimeDomainData(timeData);
+  let sum = 0;
+  for (let i = 0; i < timeData.length; i++) {
+    const v = (timeData[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.min(1, Math.sqrt(sum / timeData.length) * 4.5);
+}
+
+// ---- 待機アニメ + 口パク ----
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const t = clock.elapsedTime;
+  if (vrm) {
+    const h = vrm.humanoid, em = vrm.expressionManager;
+    const spine = h?.getNormalizedBoneNode(VRMHumanBoneName.Spine);
+    if (spine) {
+      spine.rotation.y = Math.sin(t * 0.7) * 0.03;   // 体の揺れ
+      spine.rotation.x = Math.sin(t * 1.6) * 0.015 + 0.02; // 呼吸
+    }
+    const head = h?.getNormalizedBoneNode(VRMHumanBoneName.Head);
+    if (head) {
+      head.rotation.y = Math.sin(t * 0.45) * 0.06;
+      head.rotation.x = Math.sin(t * 0.6) * 0.03;
+    }
+    if (em) {
+      const phase = t % 4.2;
+      const blink = phase < 0.12 ? 1 - Math.abs(phase - 0.06) / 0.06 : 0;
+      em.setValue("blink", Math.max(0, Math.min(1, blink)));
+      em.setValue("aa", lipValue());                 // 口パク
+    }
+    vrm.update(dt);
+  }
+  renderer.render(scene, camera);
+}
+animate();
+
+// ---- 音声(マイク -> WS, WS -> 再生) ----
+const WORKLET = `
+class DS extends AudioWorkletProcessor {
+  constructor() { super(); this.ratio = sampleRate / 16000; this.buf = []; this.pos = 0; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (!ch) return true;
+    for (let i = 0; i < ch.length; i++) this.buf.push(ch[i]);
+    const out = [];
+    while (this.pos < this.buf.length - 1) {
+      const i0 = Math.floor(this.pos), frac = this.pos - i0;
+      out.push(this.buf[i0] * (1 - frac) + this.buf[i0 + 1] * frac);
+      this.pos += this.ratio;
+    }
+    const consumed = Math.floor(this.pos);
+    if (consumed > 0) { this.buf = this.buf.slice(consumed); this.pos -= consumed; }
+    if (out.length) {
+      const i16 = new Int16Array(out.length);
+      for (let i = 0; i < out.length; i++) {
+        let v = Math.max(-1, Math.min(1, out[i]));
+        i16[i] = v < 0 ? v * 32768 : v * 32767;
+      }
+      this.port.postMessage(i16.buffer, [i16.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor("ds", DS);
+`;
+
+let ws, inCtx, outCtx, nextTime = 0;
+const sources = new Set();
+
+function playWav(buf) {
+  outCtx.decodeAudioData(buf.slice(0)).then((ab) => {
+    const s = outCtx.createBufferSource();
+    s.buffer = ab;
+    s.connect(analyser);
+    const t = Math.max(outCtx.currentTime, nextTime);
+    s.start(t);
+    nextTime = t + ab.duration;
+    sources.add(s);
+    s.onended = () => sources.delete(s);
+  }).catch(() => {});
+}
+
+function stopAll() {
+  for (const s of sources) { try { s.stop(); } catch (e) {} }
+  sources.clear();
+  nextTime = 0;
+}
+
+async function connect() {
+  btn.disabled = true;
+  setStatus("マイクを確認中…");
+  const token = new URLSearchParams(location.search).get("t") || "";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true,
+               noiseSuppression: true, autoGainControl: true },
+    });
+    inCtx = new AudioContext();
+    outCtx = new AudioContext();
+    await outCtx.resume();
+    analyser = outCtx.createAnalyser();
+    analyser.fftSize = 512;
+    timeData = new Uint8Array(analyser.fftSize);
+    analyser.connect(outCtx.destination);
+
+    const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
+    await inCtx.audioWorklet.addModule(url);
+
+    ws = new WebSocket("wss://" + location.host + "/ws?t=" + encodeURIComponent(token));
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => setStatus("接続中。話しかけてください");
+    ws.onclose = () => { setStatus("切断"); btn.disabled = false; };
+    ws.onerror = () => setStatus("接続エラー(トークン/証明書を確認)");
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === "string") {
+        try { if (JSON.parse(ev.data).type === "stop") stopAll(); } catch (e) {}
+      } else {
+        playWav(ev.data);
+      }
+    };
+
+    const node = new AudioWorkletNode(inCtx, "ds");
+    inCtx.createMediaStreamSource(stream).connect(node);
+    node.port.onmessage = (e) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
+    };
+    document.getElementById("panel").style.opacity = "0.6";
+  } catch (err) {
+    setStatus("失敗: " + err);
+    btn.disabled = false;
+  }
+}
+btn.addEventListener("click", connect);
+</script>
+</body>
+</html>

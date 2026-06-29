@@ -1,0 +1,72 @@
+"""リモート音声用の自己署名 TLS 証明書を用意する。
+
+ブラウザの getUserMedia(マイク)は localhost 以外では HTTPS(セキュアコンテキスト)が
+必須。LAN の他端末から使うため、自己署名証明書を生成して HTTPS/WSS を提供する。
+証明書が無ければ生成し、(cert_path, key_path) を返す。
+"""
+
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+
+def ensure_self_signed_cert(
+    cert_dir: str, *, ip_addresses=(), dns_names=("localhost",)
+) -> tuple[str, str]:
+    """cert_dir に cert.pem/key.pem を用意し、そのパスを返す。無ければ自己署名で生成。
+
+    ip_addresses/dns_names を SAN に入れる。スマホ等から https://<LAN IP>:5108 を
+    信頼させて使えるよう、LAN IP を含めて生成すること(既存があれば再利用なので、
+    IP を変えたいときは cert_dir を消してから再生成する)。
+    """
+    os.makedirs(cert_dir, exist_ok=True)
+    cert_path = os.path.join(cert_dir, "cert.pem")
+    key_path = os.path.join(cert_dir, "key.pem")
+    if os.path.exists(cert_path) and os.path.exists(key_path):
+        return cert_path, key_path
+
+    import ipaddress
+    from datetime import datetime, timedelta, timezone
+
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    san = [x509.DNSName(d) for d in dns_names]
+    for ip in ip_addresses:
+        try:
+            san.append(x509.IPAddress(ipaddress.ip_address(str(ip))))
+        except ValueError:
+            continue
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "kotoha-remote")])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=3650))
+        .add_extension(x509.SubjectAlternativeName(san), critical=False)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    # 秘密鍵は所有者のみ読み書き(0o600)で作成する(Windows では best-effort)。
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption(),
+            )
+        )
+    with open(cert_path, "wb") as f:
+        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    logger.info("generated self-signed cert at %s", cert_dir)
+    return cert_path, key_path

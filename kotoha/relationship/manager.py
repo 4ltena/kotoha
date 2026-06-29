@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class RelationshipManager:
     def __init__(self, *, store, config, session, loop,
-                 analyze_fn=analyze, spawn=None, clock=None):
+                 analyze_fn=analyze, spawn=None, clock=None, background_gate=None):
         self.store = store
         self.config = config
         self._session = session
@@ -24,6 +24,7 @@ class RelationshipManager:
         self._analyze_fn = analyze_fn
         self._spawn = spawn or self._default_spawn
         self._clock = clock or datetime.now
+        self._background_gate = background_gate
         self.r18_threshold = config.relationship_r18_threshold
         self._lock = asyncio.Lock()
         self._bg: set = set()
@@ -41,12 +42,31 @@ class RelationshipManager:
             "値が高いほど距離が近く心を開いた話し方にし、気分が高いと明るめ、低いと控えめにする。",
         ]
         if self.r18_unlocked():
-            lines.append("親密度が高いので、相手が望めばより親密で大人びた表現も許容してよい。")
+            extra = self._load_r18_prompt()
+            if extra:
+                lines.append(extra)
         return "\n".join(lines)
+
+    def _load_r18_prompt(self) -> str:
+        """解禁時に足す非公開プロンプトをファイルから読む(git 管理外。無ければ空)。"""
+        path = getattr(self.config, "relationship_r18_prompt_path", "")
+        if not path:
+            return ""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            return ""
 
     # ---- 更新 ----
     def on_turn(self, user_text: str, context=None) -> None:
         self._maybe_new_day()
+        # 背景分析(4b)はVRAM/速度に響くため、無効時は値を固定したまま注入のみにする。
+        if not getattr(self.config, "relationship_analyze_enabled", True):
+            return
+        # 省力型ゲームモード中などは背景LLMを起動しない。
+        if self._background_gate is not None and not self._background_gate():
+            return
         self._spawn(self._run_analyze(user_text, context))
 
     def _maybe_new_day(self) -> None:
@@ -65,7 +85,7 @@ class RelationshipManager:
                     user_text, self.store,
                     model=self.config.relationship_model,
                     session=self._session,
-                    base_url=self.config.ollama_url,
+                    base_url=self.config.aux_llm_url or self.config.ollama_url,
                     context=context,
                 )
             except Exception:

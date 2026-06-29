@@ -4,7 +4,7 @@ import re
 import threading
 import time
 from collections import deque
-from datetime import date
+from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -14,7 +14,7 @@ from kotoha.config import SAMPLE_RATE_HZ, VAD_WINDOW_SAMPLES
 from kotoha.llm import persona as _persona
 from kotoha.llm.sentence_splitter import SentenceSplitter
 from kotoha.llm.think_filter import ThinkFilter
-from kotoha.llm.date_humanize import humanize_dates
+from kotoha.llm.date_humanize import humanize_dates, format_turn_context, greeting_time_guidance
 from kotoha.events import NullEvents
 # Task 12 で feed_audio から使用
 from kotoha.voice.vad import VadSegmenter, BargeInDetector
@@ -25,10 +25,50 @@ _SENTINEL = object()
 
 # ト書き/状況説明の括弧書きだけの文(例:「（02:15 ごろ）」)。声に出さず TTS へ流さない。
 _STAGE_DIRECTION_RE = re.compile(r"^\s*[（(][^（）()]*[）)]\s*$")
+_SENTENCE_ENDINGS = "。．！？!?\n"
+_MAX_SPOKEN_TAIL_CHARS = 24
+_PREFIX_RE = re.compile(r"^\s*(つくよみ|ツクヨミ|assistant|bot)\s*[:：]\s*", re.IGNORECASE)
 
 
 def _is_stage_direction(text: str) -> bool:
     return bool(_STAGE_DIRECTION_RE.match(text))
+
+
+# 発話可能か判定する際に無視する引用符類(合成テキストからは除去しない)。
+_TTS_STRIP = "「」『』\"'“”‘’"
+
+
+def _has_speech(text: str) -> bool:
+    """発話可能な文字(かな/漢字/英数)を含むか。引用符・記号・句読点のみなら False。
+
+    記号・引用符だけの断片を GPT-SoVITS に送ると 400 になるため、その手前で弾く判定に使う。
+    合成テキスト自体は加工しない(引用符を消すと読み上げが不自然になるため)。
+    """
+    s = text
+    for c in _TTS_STRIP:
+        s = s.replace(c, "")
+    return bool(re.search(r"\w", s))
+
+
+def _complete_tail_for_speech(text: str) -> str:
+    """ストリーム終端の未確定断片を、短い場合だけ発話できる形にする。"""
+    tail = text.strip()
+    if not tail:
+        return ""
+    if tail[-1] in _SENTENCE_ENDINGS:
+        return tail
+    if len(tail) <= _MAX_SPOKEN_TAIL_CHARS and _has_speech(tail):
+        return tail + "。"
+    return ""
+
+
+def _clean_reply_text(text: str) -> str:
+    """TTS と履歴に入れる前の軽い整形。内容の言い換えはしない。"""
+    s = text.strip()
+    s = _PREFIX_RE.sub("", s)
+    s = re.sub(r"\s+", " ", s)
+    s = s.replace(" 。", "。").replace(" ？", "？").replace(" ！", "！")
+    return s
 
 
 def make_on_audio(orch):
@@ -71,6 +111,11 @@ class Orchestrator:
         memory=None,
         api_search=None,
         relationship=None,
+        max_sentences_per_turn: int = 0,
+        clock=datetime.now,
+        place: str = "",
+        screen_context=None,
+        operator=None,
     ):
         self.transcriber = transcriber
         self.llm_stream = llm_stream
@@ -97,6 +142,11 @@ class Orchestrator:
         self.memory = memory
         self.api_search = api_search   # async (text) -> str|None。外部API検索(任意)
         self.relationship = relationship   # 関係値マネージャ(任意)
+        self._max_sentences = max_sentences_per_turn   # >0 で1ターンの文数を上限(独白防止。プロンプトより優先)
+        self._clock = clock
+        self._place = place
+        self._screen_context = screen_context   # 最新の画面要約を毎ターン注入(任意)
+        self.operator = operator   # 操作グラウンディング前段プロバイダ(任意)
         self._spoke = False   # このターンで "speaking" を発信済みか
         # --- Task 12 で使用する状態 ---
         self._last_speaker: Optional[int] = None
@@ -162,6 +212,7 @@ class Orchestrator:
             logger.info("STT: empty result; skipping")
             return
         logger.info("recognized: %s", text)
+        now = self._clock()
         if self.memory is not None:
             self.memory.add_user(text)
             messages = self.memory.build_messages()
@@ -178,11 +229,61 @@ class Orchestrator:
                 ctx = None
             if ctx:
                 logger.info("API search: %s", ctx)
-                messages.insert(-1, {"role": "system", "content": "【APIで取得した情報】\n" + ctx})
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": (
+                        "【APIで取得した情報】\n"
+                        + ctx
+                        + "\nこの情報がユーザーの質問に関係する場合は、この情報を優先して短く答える。"
+                        + "時刻は、ユーザーが時刻を聞いた時だけ使う。"
+                    ),
+                })
         # 関係性: 現在値を system へ注入し、背景で値更新を起動(主応答は止めない)。
         if self.relationship is not None:
             messages.insert(-1, {"role": "system", "content": self.relationship.persona_context()})
             self.relationship.on_turn(text, context=ctx)
+        # 現在状況を毎ターン新しく、ユーザー発話の直前へ注入し確実に渡す。
+        # 画面要約がある場合はその後に積むため、ユーザー発話に最も近いのは画面要約になる。
+        guidance = greeting_time_guidance(text, now)
+        if guidance:
+            messages.insert(-1, {
+                "role": "system",
+                "content": "【この発話への時刻判定】\n" + guidance,
+            })
+        messages.insert(-1, {
+            "role": "system",
+            "content": "【現在の状況】\n" + format_turn_context(now, place=self._place),
+        })
+        # 画面知覚: 最新の画面要約があれば、状況の後に注入する(best-effort・任意)。
+        if self._screen_context is not None:
+            summary = self._screen_context.get_summary()
+            if summary:
+                getter = getattr(self._screen_context, "get_app", None)
+                app = (getter() or "") if callable(getter) else ""
+                prefix = f"(アプリ: {app})\n" if app else ""
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": (
+                        "【画面の様子】\n" + prefix + summary
+                        + "\n画面の話は、聞かれたときや明らかに関係するときだけ自然に触れる。"
+                    ),
+                })
+        # 操作グラウンディング: 前段で意図を解釈・実行し、結果文脈を注入する(best-effort・任意)。
+        if self.operator is not None:
+            try:
+                op_ctx = await self.operator.handle(text, user_id=user_id)
+            except Exception:
+                logger.exception("operator failed")
+                op_ctx = None
+            if op_ctx:
+                logger.info("operation: %s", op_ctx)
+                messages.insert(-1, {
+                    "role": "system",
+                    "content": (
+                        "【画面操作の結果】\n" + op_ctx
+                        + "\nこの結果を踏まえ、操作の成否を短く自然に伝える。失敗なら必ずそれを伝える。"
+                    ),
+                })
         self._events.state("thinking")
         self._turn_task = asyncio.create_task(self._run_turn(messages))
         try:
@@ -227,28 +328,57 @@ class Orchestrator:
         _first_sentence = True
         think = ThinkFilter()
 
-        async def _emit(clean: str) -> None:
-            nonlocal _first_sentence
+        count = 0
+        cap = self._max_sentences
+
+        async def _emit(clean: str) -> bool:
+            """clean を文へ分割しキューへ。文数上限に達したら True を返す。"""
+            nonlocal _first_sentence, count
             if not clean:
-                return
-            self._assistant_buf += clean
+                return False
             for sentence in splitter.push(clean):
                 if _first_sentence:
                     logger.info(
                         "[latency] LLM first sentence: %.2fs", time.perf_counter() - _t0
                     )
                     _first_sentence = False
+                sentence = _clean_reply_text(sentence)
+                if not sentence:
+                    continue
+                # ト書き・記号のみの文は発話しないので、履歴にも積まない(発話と保存を一致させる)。
+                if _is_stage_direction(sentence) or not _has_speech(sentence):
+                    logger.info("skip non-spoken: %s", sentence)
+                    continue
+                self._assistant_buf += sentence
                 await self._sentence_q.put(sentence)
+                count += 1
+                if cap and count >= cap:
+                    return True   # 文数上限(独白防止。プロンプトより優先)
+            return False
 
-        async for piece in self.llm_stream(messages, model=self.model):
-            if _first_token:
-                logger.info("[latency] LLM first token: %.2fs", time.perf_counter() - _t0)
-                _first_token = False
-            await _emit(think.push(piece))
-        await _emit(think.flush())
-        tail = splitter.flush()
-        if tail:
-            await self._sentence_q.put(tail)
+        stopped = False
+        agen = self.llm_stream(messages, model=self.model)
+        try:
+            async for piece in agen:
+                if _first_token:
+                    logger.info(
+                        "[latency] LLM first token: %.2fs", time.perf_counter() - _t0
+                    )
+                    _first_token = False
+                if await _emit(think.push(piece)):
+                    stopped = True
+                    break
+        finally:
+            await agen.aclose()   # 上限到達時は LLM 生成を即停止
+        if not stopped:
+            stopped = await _emit(think.flush())
+        if not stopped:
+            tail = _complete_tail_for_speech(splitter.flush())
+            if tail:
+                tail = _clean_reply_text(tail)
+                if tail and not _is_stage_direction(tail) and _has_speech(tail):
+                    self._assistant_buf += tail
+                    await self._sentence_q.put(tail)
         await self._sentence_q.put(_SENTINEL)
 
     async def _sentences_to_audio(self) -> None:
@@ -262,9 +392,16 @@ class Orchestrator:
                 logger.info("skip stage direction: %s", sentence)
                 continue
             sentence = humanize_dates(sentence, date.today())   # ISO日付を会話表現へ
+            if not _has_speech(sentence):
+                logger.info("skip non-speech: %s", sentence)   # 記号・引用符のみは TTS へ送らない
+                continue
             logger.info("synthesize: %s", sentence)
             _t_tts = time.perf_counter()
-            wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
+            try:
+                wav = await asyncio.wait_for(self.tts(sentence), timeout=self._tts_timeout)
+            except Exception:
+                logger.warning("TTS failed for sentence: %r", sentence)   # 原因文字列を記録
+                raise
             logger.info(
                 "[latency] TTS synth: %.2fs (%d chars)",
                 time.perf_counter() - _t_tts,

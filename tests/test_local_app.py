@@ -82,6 +82,8 @@ def test_build_orchestrator_wires_tts_llm_player_vad(monkeypatch):
     assert captured["stt_timeout"] == cfg.stt_timeout_s
     assert captured["tts_timeout"] == cfg.tts_timeout_s
     assert captured["play_timeout"] == cfg.play_timeout_s
+    assert callable(captured["clock"])
+    assert captured["place"] == cfg.openweather_default_city
 
 
 def test_build_orchestrator_passes_events(monkeypatch):
@@ -160,3 +162,47 @@ def test_build_orchestrator_passes_memory():
         assert orch.memory is sentinel
     finally:
         loop.close()
+
+
+def test_build_orchestrator_passes_screen_context():
+    import asyncio
+    from kotoha.config import Config
+    from kotoha.local_app import build_orchestrator
+
+    sentinel = object()
+
+    class _Tr:
+        def transcribe(self, audio):
+            return ""
+
+    class _Pl:
+        def is_playing(self):
+            return False
+
+        def stop(self):
+            pass
+
+        async def play_and_wait(self, wav):
+            return True
+
+    loop = asyncio.new_event_loop()
+    try:
+        orch = build_orchestrator(
+            Config(),
+            session=None,
+            loop=loop,
+            transcriber=_Tr(),
+            player=_Pl(),
+            screen_context=sentinel,
+        )
+        assert orch._screen_context is sentinel
+    finally:
+        loop.close()
+
+
+def test_perception_stats_summary_line_is_printable():
+    # 終了時サマリに使う PerceptionStats.summary_line が文字列を返すことの最小確認。
+    from kotoha.screen.stats import PerceptionStats
+
+    line = PerceptionStats().summary_line()
+    assert isinstance(line, str) and "captures=" in line

@@ -1,4 +1,5 @@
 import numpy as np
+from datetime import datetime
 from kotoha.orchestrator import Orchestrator
 from kotoha.llm import persona
 
@@ -226,6 +227,80 @@ async def test_memory_path_calls_add_user_and_on_turn_end():
     assert len(orch.history) == 0   # memory 経路では deque を使わない
 
 
+def test_has_speech_detects_speakable_text():
+    from kotoha.orchestrator import _has_speech
+    assert _has_speech("「はい。」") is True
+    assert _has_speech("」") is False
+    assert _has_speech("…") is False
+    assert _has_speech("（）") is False
+    assert _has_speech("あっ") is True
+
+
+async def test_symbol_only_sentences_skipped_text_unchanged():
+    # 記号・引用符だけの断片は TTS へ送らない。発話文は原文のまま(引用符を消さない)。
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["「はい。", "」", "…"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == [("WAV:" + "「はい。").encode()]   # 原文のまま、記号のみは破棄
+
+
+async def test_max_sentences_cap_limits_output():
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["1。", "2。", "3。", "4。", "5。"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        max_sentences_per_turn=2,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == [("WAV:1。").encode(), ("WAV:2。").encode()]  # 上限2で打ち切り
+    assert list(orch.history)[-1] == {"role": "assistant", "content": "1。2。"}
+
+
+async def test_long_unfinished_tail_is_not_spoken_or_recorded():
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["これは途中で切れた長い説明文で、まだまだ続きそうな内容"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == []
+    assert list(orch.history) == [{"role": "user", "content": "やあ"}]
+
+
+async def test_short_unpunctuated_tail_gets_closed_for_speech():
+    player = _RecPlayer()
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("やあ"),
+        llm_stream=_make_llm(["うん、そうですね"]),
+        tts=_fake_tts,
+        player=player,
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    assert player.played == [("WAV:うん、そうですね。").encode()]
+    assert list(orch.history)[-1] == {"role": "assistant", "content": "うん、そうですね。"}
+
+
 async def test_stage_direction_parenthetical_not_spoken():
     # ト書きの括弧書きだけの文(（02:15 ごろ）)は TTS へ流さない。
     player = _RecPlayer()
@@ -240,6 +315,9 @@ async def test_stage_direction_parenthetical_not_spoken():
     )
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     assert player.played == [("WAV:" + "はい。").encode()]
+    # 未発話のト書きは履歴にも残さない(発話と保存内容を一致させる)。
+    assert {"role": "assistant", "content": "はい。"} in list(orch.history)
+    assert not any("02:15" in m["content"] for m in orch.history)
 
 
 def _make_capturing_llm(tokens, sink):
@@ -269,8 +347,8 @@ async def test_api_search_context_injected_before_user():
     await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
     msgs = captured[0]
     assert msgs[-1]["role"] == "user"                       # 末尾はユーザー発話
-    assert msgs[-2]["content"].startswith("【APIで取得した情報】")  # 直前に API 文脈
-    assert "東京の現在の天気" in msgs[-2]["content"]
+    api_msgs = [m for m in msgs if m.get("content", "").startswith("【APIで取得した情報】")]
+    assert api_msgs and "東京の現在の天気" in api_msgs[0]["content"]
 
 
 class _FakeRelationship:
@@ -301,3 +379,184 @@ async def test_relationship_context_injected_and_on_turn_called():
     msgs = captured[0]
     assert any("ふたりの関係" in m.get("content", "") for m in msgs)
     assert rel.turns == [("やあ", None)]   # 発話と(API)文脈で更新起動
+
+
+async def test_current_time_injected_just_before_user():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("少し話そう"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        clock=lambda: datetime(2026, 6, 27, 19, 5),
+        place="Osaka,JP",
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    msgs = captured[0]
+    assert msgs[-1]["role"] == "user"                  # 末尾はユーザー発話
+    assert "現在の状況" in msgs[-2]["content"]            # その直前に現在状況
+    assert "時間帯: 夜" in msgs[-2]["content"]
+    assert "現在時刻: 夜の七時五分ごろ" in msgs[-2]["content"]
+    assert "時刻を聞かれた時の返答" not in msgs[-2]["content"]
+    assert "19:05" not in msgs[-2]["content"]
+    assert "現在地: Osaka,JP" in msgs[-2]["content"]
+
+
+async def test_weather_query_uses_llm_with_api_context_not_direct_time():
+    captured = []
+
+    async def fake_search(text):
+        return "大阪市の現在の天気: 厚い雲、気温24℃、湿度76%。"
+
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("今の天気は。"),
+        llm_stream=_make_capturing_llm(["曇っています。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        api_search=fake_search,
+        clock=lambda: datetime(2026, 6, 27, 22, 0),
+    )
+    await orch.handle_utterance(1, np.zeros(16000, dtype=np.float32))
+    msgs = captured[0]
+    assert msgs[-1]["role"] == "user"
+    api_msgs = [m for m in msgs if m.get("content", "").startswith("【APIで取得した情報】")]
+    assert api_msgs
+    assert "大阪市の現在の天気" in api_msgs[0]["content"]
+    assert "時刻は、ユーザーが時刻を聞いた時だけ使う" in api_msgs[0]["content"]
+    assert "現在時刻: 夜の十時ごろ" in msgs[-2]["content"]
+
+
+class _FakeScreen:
+    def __init__(self, summary): self._s = summary
+    def get_summary(self): return self._s
+
+
+async def test_screen_summary_injected_when_present():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("いまどう?"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        screen_context=_FakeScreen("画面にコードエディタが映っている。"),
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    msgs = captured[0]
+    contents = [m["content"] for m in msgs if m["role"] == "system"]
+    assert any(c.startswith("【画面の様子】") for c in contents)
+    assert any("画面にコードエディタ" in c for c in contents)
+    # 画面の様子は現在の状況の後（ユーザー発話に最も近い位置）へ入る。
+    full = [m["content"] for m in msgs]
+    i_screen = next(i for i, c in enumerate(full) if c.startswith("【画面の様子】"))
+    i_sit = next(i for i, c in enumerate(full) if c.startswith("【現在の状況】"))
+    assert i_screen > i_sit
+    assert msgs[-1]["role"] == "user"
+
+
+async def test_no_screen_message_when_summary_none():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("いまどう?"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        screen_context=_FakeScreen(None),
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert not any(c.startswith("【画面の様子】") for c in contents)
+
+
+async def test_no_screen_context_is_fine():
+    captured = []
+    orch = Orchestrator(
+        transcriber=_FakeTranscriber("いまどう?"),
+        llm_stream=_make_capturing_llm(["はい。"], captured),
+        tts=_fake_tts,
+        player=_RecPlayer(),
+        model="m",
+        vad_factory=lambda: _FakeVad(),
+        persona=persona,
+        screen_context=None,
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    assert captured[0] is not None   # 落ちずに通る
+
+
+async def test_operator_context_injected_before_llm():
+    captured = []
+
+    def llm(messages, *, model):
+        captured.append([dict(m) for m in messages])
+
+        async def gen():
+            yield "はい。"
+        return gen()
+
+    async def tts(text): return b""
+
+    class _Tr:
+        def transcribe(self, audio): return "その検索ボタンをクリックして"
+
+    class _Player:
+        def is_playing(self): return False
+        def stop(self): pass
+        async def play_and_wait(self, wav): return True
+
+    class _Op:
+        async def handle(self, text, *, user_id):
+            return "（検索ボタンを操作した）"
+
+    orch = Orchestrator(
+        transcriber=_Tr(), llm_stream=llm, tts=tts, player=_Player(),
+        model="m", vad_factory=lambda: object(), persona=persona, operator=_Op(),
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    sys_contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert any("検索ボタンを操作した" in c for c in sys_contents)
+
+
+async def test_screen_summary_injected_with_app_prefix():
+    from kotoha.screen.state import ScreenContext
+
+    ctx = ScreenContext(summary_max_age_s=1e9, clock=lambda: 0.0)
+    ctx.set_summary("コードを書いている。", app="code.exe")
+
+    captured = []
+
+    def llm(messages, *, model):
+        captured.append([dict(m) for m in messages])
+
+        async def gen():
+            yield "はい。"
+        return gen()
+
+    async def tts(text): return b""
+
+    class _Tr:
+        def transcribe(self, audio): return "いまどう?"
+
+    class _Player:
+        def is_playing(self): return False
+        def stop(self): pass
+        async def play_and_wait(self, wav): return True
+
+    orch = Orchestrator(
+        transcriber=_Tr(), llm_stream=llm, tts=tts, player=_Player(),
+        model="m", vad_factory=lambda: object(), persona=persona, screen_context=ctx,
+    )
+    await orch.handle_utterance(0, np.zeros(16000, dtype=np.float32))
+    sys_contents = [m["content"] for m in captured[0] if m["role"] == "system"]
+    assert any("(アプリ: code.exe)" in c and "コードを書いている" in c for c in sys_contents)

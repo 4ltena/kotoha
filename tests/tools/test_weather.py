@@ -48,6 +48,27 @@ async def test_weather_search_returns_context_on_query():
     assert captured["units"] == "metric"
 
 
+async def test_weather_search_uses_env_city_when_no_city_in_text():
+    import os
+
+    captured = {}
+
+    async def fake_fetch(city, *, api_key, session, units, lang, base_url="x"):
+        captured["city"] = city
+        return {"name": "Osaka", "weather": [{"description": "晴れ"}],
+                "main": {"temp": 20, "humidity": 50}}
+
+    os.environ["OPENWEATHER_CITY"] = "Osaka,JP"
+    try:
+        out = await weather_search(
+            "天気は？", session=None, config=Config(), api_key="k", fetch=fake_fetch
+        )
+    finally:
+        os.environ.pop("OPENWEATHER_CITY", None)
+    assert out is not None
+    assert captured["city"] == "Osaka,JP"   # 発話に都市名が無ければ .env の地点
+
+
 async def test_weather_search_none_when_not_weather():
     async def fake_fetch(*a, **k):
         raise AssertionError("should not fetch")

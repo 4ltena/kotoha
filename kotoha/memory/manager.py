@@ -27,6 +27,7 @@ class MemoryManager:
         promote_fn=promote,
         spawn=None,
         clock=None,
+        background_gate=None,
     ):
         self.store = store
         self.config = config
@@ -39,6 +40,7 @@ class MemoryManager:
         self._promote_fn = promote_fn
         self._spawn = spawn or self._default_spawn
         self._clock = clock or datetime.now   # 現在時刻取得(テストで差し替え可能)
+        self._background_gate = background_gate
         self.W = config.memory_keep_recent_turns
         self.N = config.memory_compress_interval
         self.M = config.memory_promote_threshold
@@ -54,12 +56,12 @@ class MemoryManager:
         self.store.raw_window.append({"role": "user", "content": text})
 
     def build_messages(self) -> list[dict]:
+        # 時刻は orchestrator がターン直前に注入する(最新・最も近い位置で確実に渡す)。
         return composer.build_messages(
             immutable=self._immutable,
             long_term=self.store.long_term,
             short_term=self.store.short_term,
             raw_window=self.store.raw_window,
-            time_context=composer.format_time_context(self._clock()),
         )
 
     def on_turn_end(self, assistant_text: str) -> None:
@@ -70,7 +72,8 @@ class MemoryManager:
         self.store.turns_since_compress += 1
         self.store.save()
         if self.store.turns_since_compress >= self.N and self.store.pending_raw:
-            self._spawn(self._run_compress())
+            if self._background_gate is None or self._background_gate():
+                self._spawn(self._run_compress())
 
     async def aclose(self) -> None:
         self.store.save()
@@ -88,7 +91,7 @@ class MemoryManager:
                     batch,
                     model=self.config.memory_compress_model,
                     session=self._session,
-                    base_url=self.config.ollama_url,
+                    base_url=self.config.aux_llm_url or self.config.ollama_url,
                 )
             except Exception:
                 logger.warning("memory compression failed; will retry next time")

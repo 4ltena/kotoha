@@ -14,7 +14,8 @@ def _cfg(tmp_path, **kw):
     )
 
 
-def _manager(tmp_path, *, compress_fn, promote_fn=None, gemini=None, clock=None, **kw):
+def _manager(tmp_path, *, compress_fn, promote_fn=None, gemini=None, clock=None,
+             background_gate=None, **kw):
     spawned = []
 
     def spawn(coro):
@@ -36,6 +37,7 @@ def _manager(tmp_path, *, compress_fn, promote_fn=None, gemini=None, clock=None,
         promote_fn=promote_fn or _noop_promote,
         spawn=spawn,
         clock=clock,
+        background_gate=background_gate,
     )
     return mgr, spawned
 
@@ -49,20 +51,6 @@ async def test_build_messages_uses_immutable_and_window(tmp_path):
     assert msgs[0]["role"] == "system"
     assert "IMM" in msgs[0]["content"]
     assert msgs[-1] == {"role": "user", "content": "やあ"}
-
-
-async def test_build_messages_includes_injected_time_band(tmp_path):
-    from datetime import datetime
-
-    async def cf(*a, **k):
-        return []
-    mgr, _ = _manager(
-        tmp_path, compress_fn=cf, clock=lambda: datetime(2026, 6, 27, 22, 0)
-    )
-    mgr.add_user("おはよう")
-    sys = mgr.build_messages()[0]["content"]
-    assert "いまの時刻" in sys
-    assert "夜" in sys           # 22時 -> 夜
 
 
 async def test_overflow_moves_to_pending_and_triggers_compress(tmp_path):
@@ -159,3 +147,24 @@ async def test_short_term_cap_drops_oldest_when_promotion_disabled(tmp_path):
     assert len(mgr.store.short_term) == 5          # cap にちょうど収まる
     assert "e2c" in mgr.store.short_term            # 最新エントリが保持される
     assert "e1a" not in mgr.store.short_term        # 最古エントリが除去された
+
+
+async def test_gate_blocks_compress(tmp_path):
+    async def cf(*a, **k):
+        return ["x"]
+
+    mgr, spawned = _manager(tmp_path, compress_fn=cf, N=1, background_gate=lambda: False)
+    mgr.store.pending_raw.append({"role": "user", "content": "x"})
+    mgr.on_turn_end("hello")
+    assert spawned == []                  # 省力ゲート中は圧縮を起動しない
+
+
+async def test_gate_allows_compress(tmp_path):
+    async def cf(*a, **k):
+        return ["x"]
+
+    mgr, spawned = _manager(tmp_path, compress_fn=cf, N=1, background_gate=lambda: True)
+    mgr.store.pending_raw.append({"role": "user", "content": "x"})
+    mgr.on_turn_end("hello")
+    assert len(spawned) == 1
+    await asyncio.gather(*spawned)

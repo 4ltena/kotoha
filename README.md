@@ -26,6 +26,7 @@ A local voice AI that replies in a clone of your own voice, without breaking the
 - ユーザーとの関係を親密度や気分などの数値で持ち、口調と距離感を会話に合わせて変える。
 - 天気などを API 検索で取り込み、会話へ自然に織り込む。
 - 現在時刻と日付を踏まえ、時間に合わない挨拶には戸惑う。
+- 画面を一定間隔でキャプチャしてローカル VLM で要約し、会話へ織り込む。既定は無効で、ゲーム起動時は省力かリアルタイムに切り替える。
 
 ## 仕組み
 
@@ -64,6 +65,75 @@ sequenceDiagram
         P->>U: 再生
     end
     Note over U,P: 割り込むと VAD が barge-in を検知し、生成と再生を止めて聞き直す
+```
+
+## 全体構成（現時点）
+
+上の単純な一方向ループを中核に、現段階では入力と出力の差し替え、毎ターンのコンテキスト注入、会話を止めない背景タスクが加わっている。入力はローカルマイクか別端末ブラウザのどちらか、出力もそれに対応する。1ターンでは文字起こしのあと、記憶・API検索・関係性・現在の状況・画面の様子をプロンプトへ順に積んでから生成する。
+
+画面知覚・記憶圧縮・関係性分析・ゲームモード監視は背景で別に回り、主応答を待たせない。背景の重い推論は補助エンドポイント（`vlm_perception_url` / `aux_llm_url`）へ振り分けられ、未設定ならローカルの Ollama を使う。ゲームの省力モード中は省力ゲートが背景 LLM を止める。
+
+```mermaid
+flowchart TB
+    subgraph IN["入力（どちらか）"]
+        Mic["ローカルマイク<br/>MicCapture"]
+        Rmt["別端末ブラウザ<br/>RemoteAudioServer"]
+    end
+
+    subgraph TURN["会話ループ Orchestrator（1ターン）"]
+        direction TB
+        FA["feed_audio<br/>Silero VAD で発話区切り・barge-in 検知"]
+        STT["文字起こし<br/>faster-whisper"]
+        CTX["コンテキスト注入<br/>記憶3層 → API検索 → 関係性 → 現在の状況 → 画面の様子"]
+        GEN["生成パイプライン 3段<br/>LLM ストリーム → 文分割 → TTS → 再生"]
+        FA --> STT --> CTX --> GEN
+    end
+
+    subgraph OUT["出力（入力に対応）"]
+        Spk["ローカルスピーカー<br/>LocalSpeaker"]
+        RmtOut["ブラウザで再生"]
+    end
+
+    subgraph BG["背景タスク（会話を止めない）"]
+        SP["ScreenPerceiver<br/>画面キャプチャ → VLM 要約"]
+        GM["GameModeLoop<br/>前面窓 → モード判定"]
+        SC[("ScreenContext<br/>最新の画面要約・モード")]
+        MC["記憶圧縮<br/>軽量LLM"]
+        RA["関係性分析<br/>軽量LLM"]
+        SP --> SC
+        GM --> SC
+    end
+
+    subgraph EXT["外部サービス・永続（ローカル）"]
+        OLL["Ollama Qwen3.5<br/>会話・知覚VLM・補助LLM"]
+        SOV["GPT-SoVITS"]
+        GEM["Gemini<br/>長期記憶へ昇格（任意）"]
+        WX["OpenWeather（任意）"]
+        DAT[("data/<br/>memory.json・relationship.json")]
+        OV["オーバーレイ VRM"]
+    end
+
+    Mic --> FA
+    Rmt --> FA
+    GEN --> Spk
+    GEN --> RmtOut
+    GEN -. 状態イベント .-> OV
+
+    SC -. 画面の様子 .-> CTX
+    SC -. 省力ゲートで停止 .-> MC
+    SC -. 省力ゲートで停止 .-> RA
+    GEN -. ターン終了 .-> MC
+    CTX -. 発話・状況 .-> RA
+
+    GEN --> OLL
+    GEN --> SOV
+    CTX -. 天気の質問 .-> WX
+    SP --> OLL
+    MC --> OLL
+    RA --> OLL
+    MC --> GEM
+    MC --> DAT
+    RA --> DAT
 ```
 
 ## アルゴリズム
@@ -168,13 +238,14 @@ pytest -m integration
 | 会話記憶 3層 | `memory/` | 完成 |
 | 関係性パラメータ | `relationship/` | 完成 |
 | API検索（天気） | `tools/` | 完成 |
+| 画面知覚 | `screen/`, `llm/vlm_client.py` | 完成。既定OFFのオプトイン |
 
-Python のユニットテストは現時点で 149 件成功する。オーバーレイは描画 SP1 とデスクトップ干渉 SP3 まで実装済み。Discord 対応は引き続き先の予定である。
+Python のユニットテストは現時点で 210 件成功する。画面知覚は単一GPU（RTX 4080）で会話と同じ `qwen3.5:4b`（vision 対応）を使い回す構成を既定とし、実機で確認済み。Radeon VII など別バックエンドへ振り分ける場合は `vlm_perception_url` / `aux_llm_url` で上書きする。オーバーレイは描画 SP1 とデスクトップ干渉 SP3 まで実装済み。Discord 対応は引き続き先の予定である。
 
 ## ディレクトリ
 
 ```
-kotoha/   実装本体。voice と llm のほか orchestrator, local_app, health, diagnostics, overlay_bridge, events, config
+kotoha/   実装本体。voice, llm, screen のほか orchestrator, local_app, health, diagnostics, overlay_bridge, events, config
 overlay/  デスクトップ・オーバーレイ。Electron と three-vrm
 tests/    ユニットと統合テスト
 docs/

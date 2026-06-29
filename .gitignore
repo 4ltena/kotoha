@@ -9,6 +9,7 @@ HANDOFF.md
 CLAUDE.md
 docs/superpowers/
 .superpowers/
+.claude/
 run_dev.py
 
 # ローカル記憶(会話内容・公開しない)
@@ -16,3 +17,6 @@ run_dev.py
 
 # 環境変数(APIキー等の秘密情報。.env.example のみ公開)
 .env
+
+# 大きな VRM アセット(つくよみちゃん。第三者著作物のため公開しない)
+kotoha/remote/static/assets/*.vrm

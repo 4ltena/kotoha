@@ -2,6 +2,7 @@ import aiohttp
 
 from kotoha.diagnostics import (
     diagnose,
+    diagnose_screen,
     format_report,
     list_ollama_models,
     model_present,
@@ -104,3 +105,83 @@ def test_format_report_model_missing_shows_pull_hint():
     assert "MISSING" in report
     assert "ollama pull qwen3.5:4b" in report
     assert "DOWN" in report
+
+
+# ---------------------------------------------------------------------------
+# diagnose_screen tests
+# ---------------------------------------------------------------------------
+
+from kotoha.config import Config  # noqa: E402
+
+
+class _OkSession:
+    def get(self, url, **kwargs):
+        return _Resp(200)
+
+
+async def test_diagnose_screen_none_when_disabled():
+    cfg = Config(screen_perception_enabled=False)
+    assert await diagnose_screen(cfg, session=_OkSession()) is None
+
+
+async def test_diagnose_screen_reports_vlm_and_capture():
+    cfg = Config(
+        screen_perception_enabled=True,
+        ollama_url="http://localhost:11434",
+        vlm_perception_api="ollama",
+    )
+    result = await diagnose_screen(
+        cfg, session=_OkSession(), capture_probe=lambda: "IMGB64",
+    )
+    assert result["vlm_ok"] is True
+    assert result["capture_ok"] is True
+
+
+async def test_diagnose_screen_capture_failure_is_caught():
+    cfg = Config(screen_perception_enabled=True, vlm_perception_api="ollama")
+
+    def boom():
+        raise RuntimeError("no display")
+
+    result = await diagnose_screen(cfg, session=_OkSession(), capture_probe=boom)
+    assert result["capture_ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# diagnose_operation tests
+# ---------------------------------------------------------------------------
+
+async def test_diagnose_operation_none_when_disabled():
+    from kotoha.config import Config
+    from kotoha.diagnostics import diagnose_operation
+
+    class _OkSession:
+        def get(self, url):
+            class _R:
+                status = 200
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): return False
+            return _R()
+
+    cfg = Config(operation_enabled=False)
+    assert await diagnose_operation(cfg, session=_OkSession()) is None
+
+
+async def test_diagnose_operation_reports_when_enabled():
+    from kotoha.config import Config
+    from kotoha.diagnostics import diagnose_operation
+
+    class _OkSession:
+        def get(self, url):
+            class _R:
+                status = 200
+                async def __aenter__(self): return self
+                async def __aexit__(self, *a): return False
+            return _R()
+
+    cfg = Config(operation_enabled=True, grounding_api="ollama")
+    result = await diagnose_operation(
+        cfg, session=_OkSession(), foreground_probe=lambda: "chrome.exe")
+    assert result["grounding_ok"] is True
+    assert result["foreground_ok"] is True
+    assert result["dry_run"] is True

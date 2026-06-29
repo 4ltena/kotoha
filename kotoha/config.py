@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from typing import Optional
 
 SAMPLE_RATE_HZ = 16000          # 内部音声: 16kHz mono float32
@@ -12,12 +13,24 @@ FRAME_MS = 20                   # 1 パケット = 20ms
 class Config:
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3.5:4b"
+    llm_num_predict: int = 160          # 途中切れを避けるための生成上限。短さは文数上限で担保する
+    max_sentences_per_turn: int = 2     # 1ターンで読み上げる文数の上限(独白防止。プロンプトより優先)
     tts_http_url: str = "http://localhost:50021"
     tts_http_speaker: int = 1
     whisper_model: str = "large-v3-turbo"
     whisper_device: str = "cuda"
     whisper_compute_type: str = "float16"
     language: str = "ja"
+    # STT 幻聴対策: 無音らしいセグメント破棄の閾値と、既知の幻聴フレーズのブロックリスト。
+    whisper_no_speech_threshold: float = 0.6
+    whisper_log_prob_threshold: float = -1.0
+    stt_hallucination_blocklist: tuple = (
+        "ご視聴ありがとうございました",
+        "ご清聴ありがとうございました",
+        "最後までご視聴いただきありがとうございました",
+        "チャンネル登録をお願いします",
+        "次の動画でお会いしましょう",
+    )
     vad_threshold: float = 0.5
     vad_silence_ms: int = 400        # 無音 ~400ms で発話区切り
     bargein_trigger_ms: int = 250    # ~250ms 継続発話で barge-in
@@ -40,6 +53,8 @@ class Config:
     openweather_default_city: str = "Tokyo"
     openweather_units: str = "metric"
     openweather_lang: str = "ja"
+    local_timezone: str = "Asia/Tokyo"          # 毎ターンの時刻文脈に使うタイムゾーン
+    local_place: str = ""                       # 毎ターンの地点文脈。空なら OPENWEATHER_CITY 等から推定
     # --- 関係性パラメータ (kotoha/relationship/) ---
     relationship_enabled: bool = True
     relationship_path: str = "data/relationship.json"
@@ -50,6 +65,15 @@ class Config:
     relationship_init_respect: int = 90
     relationship_init_mood: int = 40
     relationship_r18_threshold: int = 80         # affection がこれ以上で成人向け表現を許容
+    relationship_r18_prompt_path: str = "data/r18_prompt.txt"   # 解禁時に読む非公開プロンプト(git 管理外。無ければ何も足さない)
+    relationship_analyze_enabled: bool = True    # 毎ターン背景でLLM分析するか。False で値は固定のまま注入のみ(VRAM/速度優先)
+    # --- リモート音声 (別端末のブラウザのマイク/スピーカーを使う) ---
+    remote_audio_enabled: bool = False           # True で 5108 のリモートI/Oを使い、ローカルmic/spkは使わない
+    remote_audio_host: str = "0.0.0.0"           # LAN の他端末から見えるよう全インターフェイス
+    remote_audio_port: int = 5108
+    remote_audio_cert_dir: str = "data/certs"    # 自己署名証明書(cert.pem/key.pem)の置き場(data/ は git管理外)
+    remote_audio_token: str = ""                 # 接続トークン。空なら起動時に自動生成し URL に付けて表示
+    remote_half_duplex: bool = True              # 再生中はマイク入力を無視(スピーカー音の回り込み=エコー誤認識を防ぐ)
     # --- ローカル音声 I/O (sounddevice) ---
     local_user_id: int = 0
     input_device: Optional[int | str] = None   # None=既定デバイス
@@ -68,3 +92,107 @@ class Config:
     memory_promote_threshold: int = 40      # M: 短期エントリ何件で昇格するか
     memory_gemini_model_priority: tuple = ("flash-lite", "flash", "gemma")
     memory_short_term_max: int = 60      # 短期エントリ保持上限(昇格無効時の無制限増加を防ぐ)
+    # --- 画面知覚 (docs/specs/2026-06-28-screen-perception-design.md) ---
+    screen_perception_enabled: bool = False        # 既定OFFのオプトイン
+    screen_capture_backend: str = "mss"            # "mss" | "dxcam"(Windows・ゲーム)
+    screen_capture_max_long_edge: int = 1024       # 送信前の縮小上限(長辺px)
+    screen_normal_interval_s: float = 4.0          # 通常モードのキャプチャ間隔
+    screen_game_mode: str = "powersave"            # "powersave" | "realtime"
+    screen_game_realtime_interval_s: float = 0.5   # リアルタイム型の間隔
+    screen_summary_max_age_s: float = 30.0         # これより古い要約は会話へ注入しない
+    screen_game_detect_fullscreen: bool = True     # 前面窓フルスクリーン検知
+    screen_game_process_names: tuple = ()          # 補正用のプロセス名リスト
+    screen_game_poll_s: float = 2.0                # ゲーム検出のポーリング間隔
+    vlm_perception_url: str = ""                   # 知覚VLM のURL。空なら ollama_url
+    # 既定は会話と同じ qwen3.5:4b(vision対応)。単一GPUでは同一モデルを使い回し、
+    # 追加VRAM・モデルスワップを避ける。VII 等の専用VLMを別バックエンドで使うときは上書きする。
+    vlm_perception_model: str = "qwen3.5:4b"
+    vlm_perception_api: str = "openai"             # "openai" | "ollama"
+    vlm_perception_timeout_s: float = 20.0
+    vlm_perception_prompt: str = (
+        "次の画面のスクリーンショットを見て、いま何が映っているかを日本語で簡潔に説明して。"
+        "最大2文。固有名詞やUIの文字があれば拾う。推測は最小限に。"
+        "記号やMarkdown装飾(**、#、`、箇条書きなど)は使わず、プレーンな文だけで書く。"
+    )
+    aux_llm_url: str = ""                           # 非リアルタイムLLM のURL。空なら ollama_url
+    screen_change_hash_threshold: int = 4          # 知覚ハッシュの hamming 距離。これ以下は微小変化として再要約しない
+    # --- デスクトップ操作グラウンディング (docs/specs/2026-06-29-desktop-operation-grounding-design.md) ---
+    operation_enabled: bool = False              # 既定OFFのオプトイン
+    operation_dry_run: bool = True               # 既定は可視化のみ。falseで実作動(arming)
+    operation_app_allowlist: tuple = ()          # 空=全拒否。許可する前面プロセス名
+    operation_confirm_destructive: bool = True   # 破壊操作は2ターン音声確認
+    operation_destructive_keywords: tuple = (
+        "送信", "削除", "消", "購入", "買", "注文", "支払", "送金",
+        "投稿", "公開", "閉じ", "破棄", "リセット", "フォーマット", "アンインストール",
+        "ゴミ箱", "ごみ箱",
+    )
+    operation_destructive_hotkeys_always: bool = True
+    operation_kill_hotkey: str = "ctrl+alt+q"
+    operation_max_actions_per_command: int = 1
+    operation_pending_ttl_s: float = 60.0
+    operation_grounding_self_check: bool = False   # True で同一対象を2回grounding し座標不一致なら棄却
+    operation_grounding_tolerance_px: int = 30      # 自己整合の許容差(Chebyshev)
+    hotkey_map: tuple = (
+        ("保存", "ctrl+s"), ("元に戻す", "ctrl+z"), ("コピー", "ctrl+c"),
+        ("貼り付け", "ctrl+v"), ("全選択", "ctrl+a"),
+    )
+    grounding_url: str = ""                       # 空なら vlm_perception_url→ollama_url
+    grounding_model: str = "holo2-8b"
+    grounding_api: str = "openai"
+    grounding_timeout_s: float = 30.0
+    grounding_prompt: str = (
+        "次の画面のスクリーンショットを見て、指示された UI 要素のクリック点を求めて。"
+        "座標は画像に対して x, y それぞれ 0〜1000 で正規化した整数で 1 組だけ返す。"
+    )
+
+
+_TRUE = {"1", "true", "yes", "on"}
+
+# 環境変数キー -> Config フィールド名。値が非空のものだけ上書きする。
+_ENV_STR_FIELDS = (
+    ("OLLAMA_URL", "ollama_url"),
+    ("VLM_PERCEPTION_URL", "vlm_perception_url"),
+    ("AUX_LLM_URL", "aux_llm_url"),
+    ("VLM_PERCEPTION_MODEL", "vlm_perception_model"),
+    ("VLM_PERCEPTION_API", "vlm_perception_api"),
+    ("SCREEN_CAPTURE_BACKEND", "screen_capture_backend"),
+    ("LOCAL_TIMEZONE", "local_timezone"),
+    ("KOTOHA_PLACE", "local_place"),
+    ("GROUNDING_URL", "grounding_url"),
+    ("GROUNDING_MODEL", "grounding_model"),
+    ("GROUNDING_API", "grounding_api"),
+)
+
+
+def build_config(env=None) -> "Config":
+    """環境変数で一部フィールドを上書きした Config を返す。未設定・空はデフォルトのまま。
+
+    .env から推論先(知覚VLM・補助LLM)や画面知覚の有効化を切り替えるための入口。
+    起動時は main() で load_dotenv の後にこれを呼ぶ。API キーや天気の都市など他の
+    環境変数は従来どおり各所で os.environ から直接読む。
+    """
+    env = os.environ if env is None else env
+    overrides = {}
+    for key, field in _ENV_STR_FIELDS:
+        v = env.get(key)
+        if v is not None and v != "":
+            overrides[field] = v
+    flag = env.get("SCREEN_PERCEPTION_ENABLED")
+    if flag is not None and flag != "":
+        overrides["screen_perception_enabled"] = flag.strip().lower() in _TRUE
+    for env_key, field in (("OPERATION_ENABLED", "operation_enabled"),
+                           ("OPERATION_DRY_RUN", "operation_dry_run")):
+        v = env.get(env_key)
+        if v is not None and v != "":
+            overrides[field] = v.strip().lower() in _TRUE
+    allow = env.get("OPERATION_APP_ALLOWLIST")
+    if allow is not None and allow != "":
+        overrides["operation_app_allowlist"] = tuple(
+            s.strip() for s in allow.split(",") if s.strip()
+        )
+    for env_key, field in (("GROUNDING_TIMEOUT_S", "grounding_timeout_s"),
+                           ("OPERATION_PENDING_TTL_S", "operation_pending_ttl_s")):
+        v = env.get(env_key)
+        if v is not None and v != "":
+            overrides[field] = float(v)
+    return replace(Config(), **overrides)
