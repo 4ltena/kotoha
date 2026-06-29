@@ -195,3 +195,56 @@ async def test_run_closes_capturer_on_cancel():
     except asyncio.CancelledError:
         pass
     assert cap.closed is True   # キャンセルでも finally が走り解放される
+
+
+class _RecStats:
+    def __init__(self):
+        self.events = []
+
+    def record_capture(self, ms): self.events.append(("capture", ms))
+    def record_describe(self, ms): self.events.append(("describe", ms))
+    def record_skip(self): self.events.append(("skip",))
+    def record_summary_update(self): self.events.append(("summary",))
+    def record_failure(self, kind): self.events.append(("fail", kind))
+    def set_mode(self, m): self.events.append(("mode", m))
+
+
+async def test_stats_recorded_on_successful_describe():
+    ctx = _ctx()
+    st = _RecStats()
+    p = ScreenPerceiver(
+        capturer=_Capturer(), describe=_describe_factory("画面。"),
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5, stats=st,
+    )
+    assert await p.tick() is True
+    kinds = [e[0] for e in st.events]
+    assert "capture" in kinds and "describe" in kinds and "summary" in kinds
+
+
+async def test_stats_skip_on_identical_frame():
+    ctx = _ctx()
+    st = _RecStats()
+    p = ScreenPerceiver(
+        capturer=_Capturer(value="SAME"), describe=_describe_factory("画面。"),
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5, stats=st,
+    )
+    await p.tick()
+    await p.tick()
+    kinds = [e[0] for e in st.events]
+    assert kinds.count("describe") == 1   # 2回目は VLM を呼ばない
+    assert "skip" in kinds
+
+
+async def test_stats_failure_on_describe_error():
+    ctx = _ctx()
+    st = _RecStats()
+
+    async def boom(image_b64):
+        raise RuntimeError("vlm down")
+
+    p = ScreenPerceiver(
+        capturer=_Capturer(), describe=boom,
+        screen_ctx=ctx, normal_interval_s=4.0, realtime_interval_s=0.5, stats=st,
+    )
+    assert await p.tick() is False
+    assert ("fail", "vlm") in st.events

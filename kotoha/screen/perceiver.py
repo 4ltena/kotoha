@@ -24,6 +24,7 @@ class ScreenPerceiver:
         realtime_interval_s: float,
         poll_s: float = 2.0,
         sleep=asyncio.sleep,
+        stats=None,
     ):
         self._capturer = capturer
         self._describe = describe          # async (image_b64) -> str
@@ -34,6 +35,7 @@ class ScreenPerceiver:
         self._sleep = sleep
         self._stop = False
         self._last_capture_b64 = None   # 直近に要約したフレーム。同一なら再要約しない
+        self._stats = stats
         # キャプチャ(mss/dxcam)はブロッキングで、会話ループと同じスレッドで実行すると
         # barge-in・TTS・再生を止める。単一ワーカーへ逃がす。max_workers=1 で
         # スレッド固有のキャプチャ資源(GDI/DXGI)を常に同じスレッドに固定する。
@@ -49,29 +51,46 @@ class ScreenPerceiver:
 
     async def tick(self) -> bool:
         """1サイクル。要約を更新できたら True。"""
-        if self._screen_ctx.mode == "game_powersave":
+        mode = self._screen_ctx.mode
+        if self._stats is not None:
+            self._stats.set_mode(mode)
+        if mode == "game_powersave":
             return False
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
         try:
-            loop = asyncio.get_running_loop()
             image_b64 = await loop.run_in_executor(self._executor, self._capturer.capture)
         except Exception:
             logger.warning("screen capture raised", exc_info=True)
+            if self._stats is not None:
+                self._stats.record_failure("capture")
             return False
         if not image_b64:
             return False
+        if self._stats is not None:
+            self._stats.record_capture((loop.time() - t0) * 1000)
         if image_b64 == self._last_capture_b64:
             # 画面が変わっていない: 重い VLM を呼ばず、要約の鮮度だけ更新する。
             self._screen_ctx.touch()
+            if self._stats is not None:
+                self._stats.record_skip()
             return False
+        t1 = loop.time()
         try:
             summary = await self._describe(image_b64)
         except Exception:
             logger.warning("VLM describe failed", exc_info=True)
+            if self._stats is not None:
+                self._stats.record_failure("vlm")
             return False
+        if self._stats is not None:
+            self._stats.record_describe((loop.time() - t1) * 1000)
         summary = normalize_summary(summary)   # 装飾除去・最大2文へ均す
         if summary:
             self._last_capture_b64 = image_b64
             self._screen_ctx.set_summary(summary)
+            if self._stats is not None:
+                self._stats.record_summary_update()
             return True
         return False
 
