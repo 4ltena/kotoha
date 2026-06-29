@@ -7,7 +7,7 @@ PIL = pytest.importorskip("PIL")
 np = pytest.importorskip("numpy")
 from PIL import Image  # noqa: E402
 
-from kotoha.screen.capture import encode_frame, DxcamCapturer  # noqa: E402
+from kotoha.screen.capture import encode_frame, DxcamCapturer, MssCapturer  # noqa: E402
 
 
 def test_encode_frame_downscales_and_is_valid_jpeg():
@@ -47,3 +47,23 @@ def test_dxcam_returns_none_before_any_frame():
     cap = DxcamCapturer()
     cap._grab = lambda: None
     assert cap.capture() is None                   # まだ一度も取れていなければ None
+
+
+def test_capture_with_region_maps_monitor(monkeypatch):
+    from kotoha.operate.grounding import Region
+
+    cap = MssCapturer(max_long_edge=1024)
+
+    class _Raw:
+        size = (200, 100)
+        rgb = b"\x00" * (200 * 100 * 3)
+
+    class _Sct:
+        monitors = [None, {"left": 10, "top": 20, "width": 200, "height": 100}]
+        def grab(self, mon): return _Raw()
+
+    cap._sct = _Sct()
+    monkeypatch.setattr(cap, "_ensure", lambda: None)
+    img_b64, region = cap.capture_with_region()
+    assert isinstance(img_b64, str) and img_b64
+    assert region == Region(left=10, top=20, width=200, height=100)

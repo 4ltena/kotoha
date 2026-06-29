@@ -49,6 +49,27 @@ class MssCapturer:
             logger.warning("mss capture failed", exc_info=True)
             return None
 
+    def capture_with_region(self):
+        """縮小済み base64 とプライマリモニタの実矩形 Region を返す。失敗は None。
+
+        操作グラウンディングの座標写像に使う。操作機能は screen_capture_backend に
+        よらず常に mss プライマリで撮る（DxcamCapturer は region 同定を持たない）。
+        """
+        try:
+            from PIL import Image   # 遅延 import
+            from kotoha.operate.grounding import Region
+            self._ensure()
+            mon = self._sct.monitors[1]
+            raw = self._sct.grab(mon)
+            img = Image.frombytes("RGB", raw.size, raw.rgb)
+            b64 = encode_frame(img, max_long_edge=self._max_long_edge)
+            region = Region(left=mon["left"], top=mon["top"],
+                            width=mon["width"], height=mon["height"])
+            return b64, region
+        except Exception:
+            logger.warning("mss capture_with_region failed", exc_info=True)
+            return None
+
     def close(self) -> None:
         """GDI コンテキストを解放する。未生成なら何もしない。"""
         sct = self._sct
