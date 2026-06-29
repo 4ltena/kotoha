@@ -115,6 +115,7 @@ class Config:
         "記号やMarkdown装飾(**、#、`、箇条書きなど)は使わず、プレーンな文だけで書く。"
     )
     aux_llm_url: str = ""                           # 非リアルタイムLLM のURL。空なら ollama_url
+    screen_change_hash_threshold: int = 4          # 知覚ハッシュの hamming 距離。これ以下は微小変化として再要約しない
     # --- デスクトップ操作グラウンディング (docs/specs/2026-06-29-desktop-operation-grounding-design.md) ---
     operation_enabled: bool = False              # 既定OFFのオプトイン
     operation_dry_run: bool = True               # 既定は可視化のみ。falseで実作動(arming)

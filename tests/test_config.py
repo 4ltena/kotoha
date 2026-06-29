@@ -105,6 +105,7 @@ def test_screen_perception_defaults():
     assert c.vlm_perception_timeout_s == 20.0
     assert "画面" in c.vlm_perception_prompt
     assert c.aux_llm_url == ""
+    assert c.screen_change_hash_threshold == 4
 
 
 def test_build_config_overrides_from_env(monkeypatch):
@@ -177,3 +178,8 @@ def test_build_config_reads_operation_and_grounding_env():
     assert c.operation_app_allowlist == ("chrome.exe", "code.exe")
     assert c.grounding_url == "http://localhost:11436"
     assert c.grounding_timeout_s == 45.0
+
+
+def test_screen_change_hash_threshold_default():
+    from kotoha.config import Config
+    assert Config().screen_change_hash_threshold == 4
