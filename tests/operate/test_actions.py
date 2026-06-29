@@ -1,5 +1,5 @@
 from kotoha.config import Config
-from kotoha.operate.actions import ActionRequest, is_affirmative, is_negative, parse_intent
+from kotoha.operate.actions import ActionRequest, is_affirmative, is_negative, parse_chain, parse_intent
 
 CFG = Config()
 
@@ -51,3 +51,36 @@ def test_affirmative_and_negation_priority():
 
 def test_page_up_scroll_positive_amount():
     assert parse_intent("ページアップ", config=CFG).amount > 0
+
+
+def test_drag_extracts_from_and_to():
+    a = parse_intent("ファイルをゴミ箱にドラッグして", config=CFG)
+    assert a.kind == "drag" and a.target == "ファイル" and a.to_target == "ゴミ箱"
+
+
+def test_drag_requires_both_targets():
+    # 「を…に」が揃わない曖昧な発話は drag にしない
+    assert parse_intent("ドラッグして", config=CFG) is None
+
+
+def test_chain_splits_on_connectors():
+    actions = parse_chain("検索ボタンを押して、それから送信ボタンを押して", config=CFG)
+    assert len(actions) == 2
+    assert actions[0].target == "検索ボタン" and actions[1].target == "送信ボタン"
+
+
+def test_chain_protects_quoted_comma():
+    # 引用内の 、 で分割しない: 型入力 + 1操作 = 2節
+    actions = parse_chain("「a、b」と入力して、検索ボタンを押して", config=CFG)
+    assert len(actions) == 2
+    assert actions[0].kind == "type" and actions[0].text == "a、b"
+    assert actions[1].kind == "click"
+
+
+def test_chain_single_clause():
+    actions = parse_chain("検索ボタンを押して", config=CFG)
+    assert len(actions) == 1 and actions[0].kind == "click"
+
+
+def test_chain_empty_on_no_intent():
+    assert parse_chain("今日はいい天気", config=CFG) == []
