@@ -22,6 +22,7 @@ from kotoha.screen.capture import DxcamCapturer, MssCapturer
 from kotoha.screen.detector import GameModeLoop
 from kotoha.screen.perceiver import ScreenPerceiver
 from kotoha.screen.state import ScreenContext
+from kotoha.screen.stats import PerceptionStats
 from kotoha.tools.registry import api_search as _api_search
 from kotoha.relationship import RelationshipStore, RelationshipManager
 from kotoha.voice.mic import MicCapture
@@ -292,8 +293,10 @@ async def run_local(config: Config) -> None:
         # screen_ctx は memory/relationship の background_gate に渡すため、ここで先に作る。
         screen_ctx = None
         screen_tasks = []
+        screen_stats = None
         if config.screen_perception_enabled:
             screen_ctx = ScreenContext(summary_max_age_s=config.screen_summary_max_age_s)
+            screen_stats = PerceptionStats()
             if config.screen_capture_backend == "dxcam":
                 capturer = DxcamCapturer(max_long_edge=config.screen_capture_max_long_edge)
             else:
@@ -311,7 +314,7 @@ async def run_local(config: Config) -> None:
                 capturer=capturer, describe=describe, screen_ctx=screen_ctx,
                 normal_interval_s=config.screen_normal_interval_s,
                 realtime_interval_s=config.screen_game_realtime_interval_s,
-                poll_s=config.screen_game_poll_s,
+                poll_s=config.screen_game_poll_s, stats=screen_stats,
             )
             game_loop = GameModeLoop(screen_ctx=screen_ctx, config=config)
             screen_tasks = [
@@ -421,6 +424,8 @@ async def run_local(config: Config) -> None:
             if screen_tasks:
                 # キャンセル完了まで待ち、run() の finally でキャプチャ資源を解放させる。
                 await asyncio.gather(*screen_tasks, return_exceptions=True)
+            if screen_stats is not None:
+                print("[screen] stats: " + screen_stats.summary_line())
             if mic is not None:
                 mic.stop()
             if remote_server is not None:

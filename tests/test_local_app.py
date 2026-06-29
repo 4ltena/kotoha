@@ -198,3 +198,11 @@ def test_build_orchestrator_passes_screen_context():
         assert orch._screen_context is sentinel
     finally:
         loop.close()
+
+
+def test_perception_stats_summary_line_is_printable():
+    # 終了時サマリに使う PerceptionStats.summary_line が文字列を返すことの最小確認。
+    from kotoha.screen.stats import PerceptionStats
+
+    line = PerceptionStats().summary_line()
+    assert isinstance(line, str) and "captures=" in line

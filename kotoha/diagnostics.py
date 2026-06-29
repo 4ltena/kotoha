@@ -13,8 +13,8 @@ import logging
 
 import aiohttp
 
-from kotoha.config import Config
-from kotoha.health import check_local_services
+from kotoha.config import Config, build_config
+from kotoha.health import check_local_services, probe_llm_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,23 @@ async def diagnose(config, *, session) -> dict:
     }
 
 
+async def diagnose_screen(config, *, session, capture_probe=None) -> dict | None:
+    """画面知覚レディネスを返す。無効なら None。VLM 到達と1枚キャプチャ可否を見る。"""
+    if not getattr(config, "screen_perception_enabled", False):
+        return None
+    vlm_url = config.vlm_perception_url or config.ollama_url
+    vlm_ok = await probe_llm_endpoint(session, vlm_url, api=config.vlm_perception_api)
+    if capture_probe is None:
+        def capture_probe():
+            from kotoha.screen.capture import MssCapturer
+            return MssCapturer(max_long_edge=config.screen_capture_max_long_edge).capture()
+    try:
+        capture_ok = bool(capture_probe())
+    except Exception:
+        capture_ok = False
+    return {"vlm_url": vlm_url, "vlm_ok": vlm_ok, "capture_ok": capture_ok}
+
+
 def format_report(result: dict) -> str:
     """診断結果を人間可読のレポート文字列にする。"""
     lines = [f"[ollama]    {'OK' if result['ollama'] else 'DOWN'}"]
@@ -82,7 +99,11 @@ async def run_diagnostics(config: Config) -> int:
     timeout = aiohttp.ClientTimeout(total=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         result = await diagnose(config, session=session)
+        screen = await diagnose_screen(config, session=session)
     print(format_report(result))
+    if screen is not None:
+        print(f"[screen]    vlm({screen['vlm_url']}): {'OK' if screen['vlm_ok'] else 'DOWN'}, "
+              f"capture: {'OK' if screen['capture_ok'] else 'FAIL'}")
 
     print("\n[audio devices]")
     try:
@@ -98,8 +119,14 @@ async def run_diagnostics(config: Config) -> int:
 def main() -> None:
     import sys
 
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
     logging.basicConfig(level=logging.WARNING)
-    sys.exit(asyncio.run(run_diagnostics(Config())))
+    sys.exit(asyncio.run(run_diagnostics(build_config())))
 
 
 if __name__ == "__main__":
